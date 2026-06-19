@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { createStudioEnvironment } from './environment';
 import {
   applyGem,
   applyMetal,
@@ -12,13 +16,12 @@ import {
 import { buildPiece, type BuiltPiece, type PieceKey } from './models';
 
 /**
- * The Phase 1 PBR rendering engine.
+ * The Phase 1 PBR rendering engine, realism pass.
  *
- * Sets up a Three.js scene with:
- *  - a procedural RoomEnvironment baked through PMREMGenerator (no HDR asset),
- *  - ACESFilmic tone mapping + sRGB output,
- *  - a moving point light so gems throw moving sparkle highlights,
- *  - OrbitControls with auto-rotate.
+ *  - Procedural studio environment baked through PMREM (no HDR asset).
+ *  - ACESFilmic tone mapping + sRGB output (applied by OutputPass).
+ *  - Strong key/rim lights + a travelling point light so facets flare.
+ *  - UnrealBloom post-processing for subtle sparkle on the brightest glints.
  *
  * Exposes setters for piece / metal / gem / exposure that the UI binds to.
  */
@@ -28,6 +31,8 @@ export class JewelryViewer {
   readonly camera: THREE.PerspectiveCamera;
 
   private readonly controls: OrbitControls;
+  private readonly composer: EffectComposer;
+  private readonly bloom: UnrealBloomPass;
   private readonly flash: THREE.PointLight;
   private readonly metalMaterial: THREE.MeshStandardMaterial;
   private readonly gemMaterial: THREE.MeshPhysicalMaterial;
@@ -38,8 +43,11 @@ export class JewelryViewer {
   private elapsed = 0;
 
   constructor(canvas: HTMLCanvasElement) {
+    const isMobile = window.matchMedia('(pointer: coarse)').matches;
+
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Cap DPR lower on mobile to keep bloom affordable (≥30 fps target).
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -48,17 +56,18 @@ export class JewelryViewer {
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
     this.camera.position.set(0, 0.4, 6);
 
-    // Procedural studio environment → realistic reflections with no asset/cost.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    // Bright procedural studio environment → punchy metal reflections.
+    this.scene.environment = createStudioEnvironment(this.renderer);
 
-    // Key + rim + a moving flash for sparkle.
-    const key = new THREE.DirectionalLight(0xfff2d8, 2.2);
-    key.position.set(3, 4, 5);
-    const rim = new THREE.DirectionalLight(0x9fc6ff, 0.8);
-    rim.position.set(-4, -1, -3);
-    this.flash = new THREE.PointLight(0xffffff, 8, 20);
-    this.scene.add(key, rim, this.flash);
+    // Hard key + cool rim + a fill, plus a moving flash for travelling sparkle.
+    const key = new THREE.DirectionalLight(0xfff4e2, 3.2);
+    key.position.set(4, 6, 5);
+    const key2 = new THREE.DirectionalLight(0xffffff, 1.6);
+    key2.position.set(-3, 2, 6);
+    const rim = new THREE.DirectionalLight(0xbcd2ff, 1.4);
+    rim.position.set(-5, -1, -4);
+    this.flash = new THREE.PointLight(0xffffff, 14, 24, 1.5);
+    this.scene.add(key, key2, rim, this.flash);
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
@@ -68,6 +77,18 @@ export class JewelryViewer {
     this.controls.minDistance = 3.5;
     this.controls.maxDistance = 9;
     this.controls.enablePan = false;
+
+    // Post-processing: render → bloom → tone-map/sRGB output.
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(
+      new THREE.Vector2(1, 1),
+      0.45, // strength — subtle, only the hottest glints
+      0.5, // radius
+      0.82, // threshold — leave mid-tones untouched
+    );
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
 
     // Shared materials — mutated in place on selection change.
     this.metalMaterial = makeMetalMaterial('yellow');
@@ -120,22 +141,26 @@ export class JewelryViewer {
     this.elapsed += this.clock.getDelta();
     const t = this.elapsed;
     // Orbit the flash so highlights sweep across the facets → sparkle.
-    this.flash.position.set(Math.cos(t * 1.3) * 4, 2, Math.sin(t * 1.3) * 4);
+    this.flash.position.set(Math.cos(t * 1.3) * 4, 2.5, Math.sin(t * 1.3) * 4);
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   };
 
   private handleResize = (): void => {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.composer.setSize(w, h);
+    this.bloom.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
 }
 
 function disposePiece(piece: BuiltPiece): void {
-  for (const mesh of [...piece.metalMeshes, ...piece.gemMeshes]) {
+  // Only metal geometries are unique per build; gem geometries are shared
+  // module-level singletons, so they must not be disposed here.
+  for (const mesh of piece.metalMeshes) {
     mesh.geometry.dispose();
   }
 }
