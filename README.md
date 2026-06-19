@@ -12,10 +12,11 @@ Owned product — no recurring third-party SDK fees. Built with open-source libr
 - **Hybrid 3D assets:** parametric/3D models for hero pieces, photo-based try-on for the long tail.
 
 ## Differentiators (vs existing try-on apps)
-1. **ERP integration** — live gold rate + inventory + real price shown during try-on (AMARSOFT ERP).
+1. **Store-native data** — product info and live price pulled from the store platform (Shopify now,
+   others later) via a pluggable adapter; an optional gold-rate metafield lets jewellers recompute price.
 2. **Accurate ring sizing** from detected finger width ("find my size").
 3. **Room-light-adaptive reflections** — gold/gem reflections adjust to the shopper's lighting.
-4. **Arabic-first / Gulf-market UX** + ready distribution to existing client base.
+4. **Arabic-first / Gulf-market UX**, sellable to any jewellery store (not tied to any ERP).
 
 ## Tech stack
 - **Rendering:** Three.js (WebGL2) — PBR metals + transmissive gems + environment reflections (procedural studio env, no HDR asset).
