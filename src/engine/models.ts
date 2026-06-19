@@ -1,12 +1,14 @@
 import * as THREE from 'three';
+import { createBrilliantGeometry } from './brilliant';
 
 /**
  * Parametric jewellery geometry builders.
  *
  * Each builder returns a THREE.Group plus the lists of metal meshes and gem
- * meshes inside it, so the viewer can assign the shared metal/gem materials and
- * later swap them. Geometry is intentionally lightweight (a few dozen meshes)
- * to keep 60fps desktop / 30fps mobile.
+ * meshes inside it, so the viewer can assign the shared metal/gem materials.
+ * Geometry uses high segment counts and smooth shading so metal reads as
+ * polished, not faceted; gems use the faceted brilliant-cut hull so they
+ * sparkle. Still lightweight (a few dozen meshes) for 60/30 fps.
  */
 
 export type PieceKey = 'ring' | 'pendant' | 'earring';
@@ -23,28 +25,40 @@ export const PIECE_NAMES: Record<PieceKey, string> = {
   earring: 'قرط',
 };
 
-/** Approximate a brilliant-cut stone: a faceted crown cylinder + pavilion cone. */
-function brilliant(size: number, out: THREE.Mesh[]): THREE.Group {
-  const g = new THREE.Group();
-  const table = 0.55 * size;
-  const crown = new THREE.Mesh(new THREE.CylinderGeometry(table, size, 0.35 * size, 12));
-  const pavilion = new THREE.Mesh(new THREE.ConeGeometry(size, 1.0 * size, 12));
-  pavilion.rotation.x = Math.PI;
-  pavilion.position.y = -0.5 * size - 0.175 * size;
-  g.add(crown, pavilion);
-  out.push(crown, pavilion);
-  return g;
+// Shared faceted gem geometries (normalised, girdle radius ~1). Reused across
+// all stones; each mesh sets its own scale. Hi-detail for hero stones,
+// lo-detail for the small accents.
+const GEM_HI = createBrilliantGeometry(28);
+const GEM_LO = createBrilliantGeometry(16);
+
+/** A brilliant-cut stone mesh sized to `size` (girdle diameter ≈ size). */
+function gem(size: number, detail: 'hi' | 'lo', out: THREE.Mesh[]): THREE.Mesh {
+  const mesh = new THREE.Mesh(detail === 'hi' ? GEM_HI : GEM_LO);
+  mesh.scale.setScalar(size);
+  out.push(mesh);
+  return mesh;
 }
 
-/** A ring of prongs holding a centre stone. */
-function prongsAround(radius: number, height: number, count: number, out: THREE.Mesh[]): THREE.Group {
+/** Rounded claw prongs around a centre stone (with domed tips). */
+function prongsAround(
+  radius: number,
+  height: number,
+  count: number,
+  out: THREE.Mesh[],
+): THREE.Group {
   const grp = new THREE.Group();
+  const shaft = new THREE.CylinderGeometry(0.035, 0.045, height, 20);
+  const tip = new THREE.SphereGeometry(0.04, 20, 16);
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2;
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, height, 8));
-    p.position.set(Math.cos(a) * radius, height * 0.3, Math.sin(a) * radius);
-    grp.add(p);
-    out.push(p);
+    const x = Math.cos(a) * radius;
+    const z = Math.sin(a) * radius;
+    const p = new THREE.Mesh(shaft);
+    p.position.set(x, height * 0.3, z);
+    const cap = new THREE.Mesh(tip);
+    cap.position.set(x, height * 0.3 + height * 0.5, z);
+    grp.add(p, cap);
+    out.push(p, cap);
   }
   return grp;
 }
@@ -54,25 +68,35 @@ function buildRing(): BuiltPiece {
   const metalMeshes: THREE.Mesh[] = [];
   const gemMeshes: THREE.Mesh[] = [];
 
-  const band = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.16, 32, 80));
+  // Comfort-fit band — high segment torus reads as a smooth polished shank.
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.17, 64, 256));
   band.rotation.x = Math.PI / 2;
   metalMeshes.push(band);
 
   const head = new THREE.Group();
   head.position.set(0, 1.0, 0);
-  const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.26, 0.22, 16));
+
+  // Tapered, rounded basket under the centre stone.
+  const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.24, 0.24, 48, 1, true));
   metalMeshes.push(basket);
+  const basketRim = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.03, 24, 64));
+  basketRim.position.y = 0.12;
+  basketRim.rotation.x = Math.PI / 2;
+  metalMeshes.push(basketRim);
 
-  const centre = brilliant(0.46, gemMeshes);
-  centre.position.y = 0.2;
-  head.add(basket, prongsAround(0.34, 0.34, 4, metalMeshes), centre);
+  const centre = gem(0.5, 'hi', gemMeshes);
+  centre.position.y = 0.26;
+  head.add(basket, basketRim, prongsAround(0.34, 0.36, 6, metalMeshes), centre);
 
-  // side accent stones
+  // Pavé side accents along the shoulders.
   for (const s of [-1, 1]) {
-    const side = brilliant(0.16, gemMeshes);
-    side.position.set(s * 0.5, 0.95, 0);
-    side.rotation.z = s * 0.3;
-    group.add(side);
+    for (let j = 0; j < 3; j++) {
+      const acc = gem(0.13 - j * 0.02, 'lo', gemMeshes);
+      const a = s * (0.42 + j * 0.28);
+      acc.position.set(Math.sin(a) * 1.0, Math.cos(a) * 1.0, 0);
+      acc.rotation.z = -a;
+      group.add(acc);
+    }
   }
 
   group.add(band, head);
@@ -84,21 +108,24 @@ function buildPendant(): BuiltPiece {
   const metalMeshes: THREE.Mesh[] = [];
   const gemMeshes: THREE.Mesh[] = [];
 
-  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.06, 20, 40));
-  bail.position.y = 1.05;
+  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.06, 32, 96));
+  bail.position.y = 1.08;
   metalMeshes.push(bail);
 
-  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.09, 24, 60));
+  // Halo frame + bright-cut rail holding the surrounding stones.
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.64, 0.1, 40, 140));
   metalMeshes.push(halo);
 
-  const centre = brilliant(0.62, gemMeshes);
+  const centre = gem(0.74, 'hi', gemMeshes);
   centre.position.y = 0.18;
+  centre.position.z = 0.04;
 
-  const n = 14;
+  const n = 16;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    const small = brilliant(0.1, gemMeshes);
-    small.position.set(Math.cos(a) * 0.62, Math.sin(a) * 0.62, 0.05);
+    const small = gem(0.13, 'lo', gemMeshes);
+    small.position.set(Math.cos(a) * 0.64, Math.sin(a) * 0.64 + 0.18, 0.12);
+    small.rotation.z = a;
     group.add(small);
   }
 
@@ -111,19 +138,32 @@ function buildEarring(): BuiltPiece {
   const metalMeshes: THREE.Mesh[] = [];
   const gemMeshes: THREE.Mesh[] = [];
 
-  const hook = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.05, 20, 40, Math.PI * 1.3));
-  hook.position.y = 0.9;
+  const hook = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.05, 28, 96, Math.PI * 1.3));
+  hook.position.y = 0.95;
   metalMeshes.push(hook);
 
-  const link = new THREE.Mesh(new THREE.SphereGeometry(0.1, 20, 20));
-  link.position.y = 0.45;
+  const link = new THREE.Mesh(new THREE.SphereGeometry(0.1, 32, 24));
+  link.position.y = 0.5;
   metalMeshes.push(link);
 
-  const drop = brilliant(0.5, gemMeshes);
-  drop.position.y = -0.1;
-  drop.rotation.x = Math.PI;
+  // Halo-set teardrop: a small frame ring + centre stone + accents.
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.06, 32, 100));
+  frame.position.y = -0.05;
+  metalMeshes.push(frame);
 
-  group.add(hook, link, drop);
+  const drop = gem(0.6, 'hi', gemMeshes);
+  drop.position.y = -0.05;
+
+  const n = 12;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const small = gem(0.1, 'lo', gemMeshes);
+    small.position.set(Math.cos(a) * 0.4, Math.sin(a) * 0.4 - 0.05, 0.06);
+    small.rotation.z = a;
+    group.add(small);
+  }
+
+  group.add(hook, link, frame, drop);
   return { group, metalMeshes, gemMeshes };
 }
 
