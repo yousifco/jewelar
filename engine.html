@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<!-- Phase 1 — Realistic PBR jewellery rendering engine (Three.js).
+     Proves the "magic" quality bar: real gold metal + diamond sparkle + environment reflections.
+     Runs on the shopper's device (no servers). Open over HTTPS or locally on a computer. -->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>محرك العرض الواقعي — AMAR·JEWEL</title>
+<style>
+  :root{--velvet:#0E0B07;--gold:#CBA350;--gold-bright:#F2D98A;--ivory:#F4ECDA;--muted:#9A8C6E;--line:rgba(203,163,80,.22);--panel:rgba(20,15,8,.78)}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{direction:rtl;color:var(--ivory);font-family:"Segoe UI","Tahoma",system-ui,sans-serif;
+    background:radial-gradient(120% 90% at 50% 0%,#241a0d 0%,var(--velvet) 55%,#050403 100%)}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block}
+  header{position:fixed;top:0;left:0;right:0;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:14px 20px}
+  .name{font-family:Georgia,serif;letter-spacing:.18em;font-size:18px;color:var(--gold-bright);font-weight:600}
+  .sub{font-size:11.5px;color:var(--muted)}
+  .badge{font-size:11px;color:var(--gold);border:1px solid var(--line);padding:6px 12px;border-radius:999px;background:rgba(203,163,80,.06)}
+  .panel{position:fixed;z-index:3;bottom:0;left:0;right:0;background:linear-gradient(180deg,transparent,rgba(7,5,3,.85) 40%);padding:30px 18px 20px}
+  .panel-inner{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .row .lbl{font-size:12px;color:var(--muted);min-width:70px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:rgba(203,163,80,.06);color:var(--ivory);font-size:12.5px;cursor:pointer;transition:.15s}
+  .chip:hover{background:rgba(203,163,80,.16)}
+  .chip.on{background:linear-gradient(180deg,var(--gold-bright),var(--gold));color:var(--velvet);border-color:transparent;font-weight:600}
+  .sw{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.15);cursor:pointer;transition:.15s}
+  .sw.on{border-color:var(--gold-bright);box-shadow:0 0 0 2px rgba(242,217,138,.4)}
+  input[type=range]{flex:1;accent-color:var(--gold);height:4px}
+  .loading{position:fixed;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:30px;transition:.4s}
+  .loading.hide{opacity:0;pointer-events:none}
+  .spinner{width:32px;height:32px;border:3px solid rgba(203,163,80,.25);border-top-color:var(--gold-bright);border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading p{color:var(--ivory);font-size:14px;margin:0}
+  .loading small{color:var(--muted);font-size:12px;max-width:280px;line-height:1.6}
+  .hint{position:fixed;top:64px;left:0;right:0;z-index:2;text-align:center;font-size:11.5px;color:var(--muted);pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<header>
+  <div>
+    <div class="name">AMAR·JEWEL</div>
+    <div class="sub">محرك العرض الواقعي — PBR · انعكاسات بيئية</div>
+  </div>
+  <span class="badge">المرحلة ١ · جودة العرض</span>
+</header>
+<div class="hint">اسحب لتدوير القطعة · لاحظ لمعان الذهب وتلألؤ الألماس مع الحركة</div>
+
+<div class="panel"><div class="panel-inner">
+  <div class="row"><span class="lbl">القطعة</span><div class="seg" id="models"></div></div>
+  <div class="row"><span class="lbl">المعدن</span><div class="seg" id="metals"></div></div>
+  <div class="row"><span class="lbl">الحجر</span><div class="seg" id="gems"></div></div>
+  <div class="row"><span class="lbl">الإضاءة</span><input type="range" id="light" min="0.4" max="2.4" step="0.05" value="1.2"></div>
+</div></div>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <p>جارٍ تجهيز محرك العرض…</p>
+  <small>يُحمّل محرك ٣D لمرة واحدة. كل العرض يتم على جهازك — بدون خوادم.</small>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.2;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(35,1,0.1,100);
+camera.position.set(0,0.4,6);
+
+// studio environment for realistic reflections (procedural, no asset, no cost)
+const pmrem=new THREE.PMREMGenerator(renderer);
+scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
+
+// soft key light to add sparkle highlights
+const key=new THREE.DirectionalLight(0xfff2d8,2.2);key.position.set(3,4,5);scene.add(key);
+const rim=new THREE.DirectionalLight(0x9fc6ff,0.8);rim.position.set(-4,-1,-3);scene.add(rim);
+const flash=new THREE.PointLight(0xffffff,8,20);scene.add(flash);
+
+const controls=new OrbitControls(camera,canvas);
+controls.enableDamping=true;controls.dampingFactor=0.08;
+controls.autoRotate=true;controls.autoRotateSpeed=2.2;
+controls.minDistance=3.5;controls.maxDistance=9;controls.enablePan=false;
+
+/* ---------------- materials ---------------- */
+const METALS={
+  yellow:{color:0xffc864,rough:0.17,name:"ذهب أصفر"},
+  white:{color:0xe9e7df,rough:0.12,name:"ذهب أبيض"},
+  rose:{color:0xf2b39a,rough:0.18,name:"ذهب وردي"},
+};
+const GEMS={
+  diamond:{color:0xffffff,name:"ألماس"},
+  ruby:{color:0xff2b54,name:"ياقوت"},
+  sapphire:{color:0x2d6cff,name:"زفير"},
+  emerald:{color:0x18b56b,name:"زمرّد"},
+};
+let metalMat=makeMetal('yellow');
+let gemMat=makeGem('diamond');
+
+function makeMetal(k){const m=METALS[k];return new THREE.MeshStandardMaterial({color:m.color,metalness:1,roughness:m.rough,envMapIntensity:1.5});}
+function makeGem(k){const g=GEMS[k];return new THREE.MeshPhysicalMaterial({
+  color:g.color,metalness:0,roughness:0,transmission:k==='diamond'?1:0.6,thickness:0.6,ior:2.42,
+  specularIntensity:1,envMapIntensity:2.4,clearcoat:1,clearcoatRoughness:0,
+  attenuationColor:g.color,attenuationDistance:k==='diamond'?5:0.7});}
+
+/* ---------------- geometry builders ---------------- */
+function brilliant(size){ // approximate brilliant-cut gem: crown + pavilion
+  const g=new THREE.Group();
+  const table=0.55*size;
+  const crown=new THREE.CylinderGeometry(table,size,0.35*size,12);
+  const pav=new THREE.ConeGeometry(size,1.0*size,12);
+  const cM=new THREE.Mesh(crown,gemMat);cM.position.y=0.0;
+  const pM=new THREE.Mesh(pav,gemMat);pM.rotation.x=Math.PI;pM.position.y=-0.5*size-0.175*size;
+  g.add(cM,pM);g.userData.gemMeshes=[cM,pM];return g;
+}
+function prongsAround(r,h,count){
+  const grp=new THREE.Group();
+  for(let i=0;i<count;i++){const a=(i/count)*Math.PI*2;
+    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,h,8),metalMat);
+    p.position.set(Math.cos(a)*r,h*0.3,Math.sin(a)*r);p.userData.metal=true;grp.add(p);}
+  return grp;
+}
+
+let gemMeshes=[],metalMeshes=[];
+function track(obj){obj.traverse(o=>{if(o.isMesh){if(o.userData.metal||o.material===metalMat){metalMeshes.push(o);} }});}
+
+function buildRing(){
+  const g=new THREE.Group();
+  const band=new THREE.Mesh(new THREE.TorusGeometry(1.0,0.16,32,80),metalMat);
+  band.rotation.x=Math.PI/2;band.userData.metal=true;
+  const head=new THREE.Group();head.position.set(0,1.0,0);
+  const basket=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.26,0.22,16),metalMat);basket.userData.metal=true;
+  const gem=brilliant(0.46);gem.position.y=0.2;gemMeshes.push(...gem.userData.gemMeshes);
+  head.add(basket,prongsAround(0.34,0.34,4),gem);
+  // side accent stones
+  for(const s of [-1,1]){const sg=brilliant(0.16);sg.position.set(s*0.5,0.95,0);sg.rotation.z=s*0.3;g.add(sg);gemMeshes.push(...sg.userData.gemMeshes);}
+  g.add(band,head);metalMeshes.push(band,basket);
+  return g;
+}
+function buildPendant(){
+  const g=new THREE.Group();
+  const bail=new THREE.Mesh(new THREE.TorusGeometry(0.22,0.06,20,40),metalMat);bail.position.y=1.05;bail.userData.metal=true;
+  const halo=new THREE.Mesh(new THREE.TorusGeometry(0.62,0.09,24,60),metalMat);halo.userData.metal=true;
+  const gem=brilliant(0.62);gem.position.y=0.18;gemMeshes.push(...gem.userData.gemMeshes);
+  // halo stones
+  const n=14;for(let i=0;i<n;i++){const a=(i/n)*Math.PI*2;const sg=brilliant(0.1);sg.position.set(Math.cos(a)*0.62,Math.sin(a)*0.62,0.05);g.add(sg);gemMeshes.push(...sg.userData.gemMeshes);}
+  g.add(bail,halo,gem);metalMeshes.push(bail,halo);
+  return g;
+}
+function buildEarring(){
+  const g=new THREE.Group();
+  const hook=new THREE.Mesh(new THREE.TorusGeometry(0.35,0.05,20,40,Math.PI*1.3),metalMat);
+  hook.position.y=0.9;hook.userData.metal=true;
+  const link=new THREE.Mesh(new THREE.SphereGeometry(0.1,20,20),metalMat);link.position.y=0.45;link.userData.metal=true;
+  const gem=brilliant(0.5);gem.position.y=-0.1;gem.rotation.x=Math.PI;gemMeshes.push(...gem.userData.gemMeshes);
+  g.add(hook,link,gem);metalMeshes.push(hook,link);
+  return g;
+}
+
+const BUILDERS={ring:buildRing,pendant:buildPendant,earring:buildEarring};
+const MODEL_NAMES={ring:"خاتم",pendant:"تعليقة",earring:"قرط"};
+let current=null;
+function loadModel(key){
+  if(current)scene.remove(current);
+  gemMeshes=[];metalMeshes=[];
+  current=BUILDERS[key]();
+  current.scale.setScalar(1.25);
+  scene.add(current);
+}
+
+/* ---------------- UI ---------------- */
+function chips(host,obj,onPick,activeKey){
+  const el=document.getElementById(host);el.innerHTML="";
+  Object.keys(obj).forEach(k=>{
+    const c=document.createElement('div');c.className="chip"+(k===activeKey?" on":"");
+    c.textContent=obj[k].name||obj[k];c.onclick=()=>{[...el.children].forEach(n=>n.classList.remove('on'));c.classList.add('on');onPick(k);};
+    el.appendChild(c);
+  });
+}
+chips('models',MODEL_NAMES,k=>loadModel(k),'ring');
+chips('metals',Object.fromEntries(Object.entries(METALS).map(([k,v])=>[k,v.name])),k=>{
+  const nm=makeMetal(k);metalMat.color.set(nm.color);metalMat.roughness=nm.roughness=METALS[k].rough;metalMat.needsUpdate=true;
+},'yellow');
+chips('gems',Object.fromEntries(Object.entries(GEMS).map(([k,v])=>[k,v.name])),k=>{
+  const ng=GEMS[k];gemMat.color.set(ng.color);gemMat.attenuationColor.set(ng.color);
+  gemMat.transmission=k==='diamond'?1:0.6;gemMat.attenuationDistance=k==='diamond'?5:0.7;gemMat.needsUpdate=true;
+},'diamond');
+document.getElementById('light').oninput=e=>{renderer.toneMappingExposure=parseFloat(e.target.value);};
+
+/* ---------------- loop ---------------- */
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+loadModel('ring');
+
+let t=0;
+function animate(){
+  requestAnimationFrame(animate);
+  t+=0.016;
+  flash.position.set(Math.cos(t*1.3)*4,2,Math.sin(t*1.3)*4); // moving light → sparkle
+  controls.update();
+  renderer.render(scene,camera);
+}
+animate();
+setTimeout(()=>document.getElementById('loading').classList.add('hide'),900);
+</script>
+</body>
+</html>

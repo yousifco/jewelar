@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!-- Live AR Jewellery Try-On v2 — procedural rendering for a "worn" look.
+     Open over HTTPS (or locally on a computer) and allow the camera. -->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>مرآة المجوهرات — التجربة المباشرة (AR)</title>
+<style>
+  :root{--velvet:#0E0B07;--gold:#CBA350;--gold-bright:#F2D98A;--ivory:#F4ECDA;--muted:#9A8C6E;--line:rgba(203,163,80,.22);--panel:rgba(23,17,9,.85)}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{direction:rtl;color:var(--ivory);font-family:"Segoe UI","Tahoma",system-ui,sans-serif;
+    background:radial-gradient(120% 80% at 50% -10%,#241a0d 0%,var(--velvet) 55%,#070503 100%);overflow:hidden}
+  .app{display:flex;flex-direction:column;height:100dvh;max-width:1180px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  .brand .name{font-family:Georgia,serif;letter-spacing:.18em;font-size:18px;color:var(--gold-bright);font-weight:600}
+  .brand .sub{font-size:11.5px;color:var(--muted)}
+  .badge{font-size:11px;color:var(--gold);border:1px solid var(--line);padding:6px 12px;border-radius:999px;background:rgba(203,163,80,.06)}
+  .stage-wrap{flex:1 1 auto;display:flex;align-items:center;justify-content:center;padding:16px;min-height:0}
+  .mirror{position:relative;width:100%;max-width:560px;aspect-ratio:3/4;border-radius:20px;overflow:hidden;background:#0a0704;
+    box-shadow:0 0 0 1px var(--line),0 18px 50px rgba(0,0,0,.55),inset 0 0 60px rgba(0,0,0,.6)}
+  .mirror::after{content:"";position:absolute;inset:8px;border-radius:13px;pointer-events:none;border:1px solid rgba(203,163,80,.28);z-index:6}
+  #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #overlay{position:absolute;inset:0;width:100%;height:100%;z-index:3}
+  .status{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:30px;z-index:4;transition:.3s}
+  .status.hidden{opacity:0;pointer-events:none}
+  .status .glyph{font-size:40px}
+  .status p{color:var(--ivory);font-size:14.5px;line-height:1.7;max-width:300px;margin:0}
+  .status small{color:var(--muted);font-size:12px;max-width:300px;line-height:1.6}
+  .spinner{width:30px;height:30px;border:3px solid rgba(203,163,80,.25);border-top-color:var(--gold-bright);border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .hud{position:absolute;top:12px;right:12px;z-index:5;display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:11.5px;color:var(--muted);backdrop-filter:blur(6px)}
+  .dot{width:7px;height:7px;border-radius:50%;background:#6fcf6f;box-shadow:0 0 8px #6fcf6f}
+  .dot.off{background:#c77;box-shadow:none}
+  .tray{flex:0 0 auto;border-top:1px solid var(--line);background:linear-gradient(180deg,rgba(23,17,9,.4),rgba(7,5,3,.6));padding:12px 16px 16px}
+  .group-label{font-size:11px;color:var(--muted);margin:0 2px 8px}
+  .items{display:flex;gap:12px;overflow-x:auto;padding:2px;scrollbar-width:none}
+  .items::-webkit-scrollbar{display:none}
+  .item{flex:0 0 auto;width:86px;height:90px;border-radius:14px;cursor:pointer;border:1px solid var(--line);
+    background:radial-gradient(120% 120% at 50% 0,#1d150b,#0c0805);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px;transition:.15s}
+  .item:hover{border-color:rgba(242,217,138,.5);transform:translateY(-2px)}
+  .item.active{border-color:var(--gold-bright);box-shadow:0 0 0 1px var(--gold-bright),0 8px 20px rgba(0,0,0,.4)}
+  .item svg{width:44px;height:44px}
+  .item .nm{font-size:10px;color:var(--muted)}
+  .item.active .nm{color:var(--gold-bright)}
+  .actions{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:12px}
+  .btn{border:1px solid var(--line);background:rgba(203,163,80,.07);color:var(--ivory);padding:11px 18px;border-radius:12px;font-size:13.5px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:.15s}
+  .btn:hover{background:rgba(203,163,80,.16)}
+  .btn.primary{background:linear-gradient(180deg,var(--gold-bright),var(--gold));color:var(--velvet);border-color:transparent;font-weight:600}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .hint{font-size:11.5px;color:var(--muted);text-align:center;margin-top:10px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--panel);border:1px solid var(--line);color:var(--ivory);padding:12px 18px;border-radius:12px;font-size:13px;z-index:50;opacity:0;transition:.25s;backdrop-filter:blur(8px)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media (max-width:560px){.actions{flex-direction:column;align-items:stretch}.btn.primary,.actions .btn{justify-content:center}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="name">AMAR·JEWEL <span style="font-family:'Segoe UI';font-size:11px;color:var(--muted);letter-spacing:0">AR</span></div>
+      <div class="sub">المرآة الذكية — جرّب المجوهرات مباشرةً عبر الكاميرا</div>
+    </div>
+    <span class="badge">Live AR · Face & Hand</span>
+  </header>
+  <div class="stage-wrap">
+    <div class="mirror" id="mirror">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="hud" id="hud"><span class="dot off" id="dot"></span><span id="hudText">بانتظار التشغيل</span></div>
+      <div class="status" id="status">
+        <div class="glyph">💎</div>
+        <p>المرآة الذكية للتجربة المباشرة</p>
+        <small>اضغط «ابدأ المرآة» واسمح بالكاميرا، ثم اختر قطعة. الأفضل ظهوراً: القلائد والأقراط.</small>
+        <button class="btn primary" id="startBtn">▶ ابدأ المرآة</button>
+      </div>
+    </div>
+  </div>
+  <div class="tray">
+    <div class="group-label">للوجه والرقبة — وجّه وجهك للكاميرا</div>
+    <div class="items" id="faceItems"></div>
+    <div class="group-label" style="margin-top:14px">لليد والمعصم — ارفع يدك مفرودة أمام الكاميرا</div>
+    <div class="items" id="handItems"></div>
+    <div class="actions">
+      <button class="btn" id="resetBtn">إزالة الكل</button>
+      <button class="btn primary" id="captureBtn" disabled>✨ التقط صورة</button>
+    </div>
+    <div class="hint">قطعة واحدة لكل موضع — اضغط القطعة المفعّلة لإيقافها. جرّب في إضاءة جيدة.</div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { FaceLandmarker, HandLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12";
+
+/* tray icons + metadata only (body rendering is procedural) */
+function idef(id){return `<linearGradient id="g${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7E6A8"/><stop offset=".5" stop-color="#D9B45C"/><stop offset="1" stop-color="#9A742C"/></linearGradient>`;}
+const LIB={
+  necklace:{nm:"قلادة",slot:"necklace",mode:"face",svg:id=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${idef(id)}</defs><path d="M16 18 Q50 70 84 18" fill="none" stroke="url(#g${id})" stroke-width="4"/><path d="M50 52 l7 11 -7 10 -7-10z" fill="#bfe9ff" stroke="#fff"/></svg>`},
+  earrings:{nm:"أقراط",slot:"earrings",mode:"face",svg:id=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${idef(id)}</defs><circle cx="50" cy="22" r="8" fill="none" stroke="url(#g${id})" stroke-width="4"/><path d="M50 32 l10 26 -10 28 -10-28z" fill="#bfe9ff" stroke="url(#g${id})" stroke-width="2"/></svg>`},
+  ring:{nm:"خاتم",slot:"ring",mode:"hand",svg:id=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${idef(id)}</defs><ellipse cx="50" cy="66" rx="24" ry="19" fill="none" stroke="url(#g${id})" stroke-width="8"/><path d="M50 24 l11 16 -11 14 -11-14z" fill="#bfe9ff" stroke="#fff"/></svg>`},
+  bracelet:{nm:"سوار",slot:"wrist",mode:"hand",svg:id=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${idef(id)}</defs><ellipse cx="50" cy="50" rx="40" ry="22" fill="none" stroke="url(#g${id})" stroke-width="7"/></svg>`},
+  watch:{nm:"ساعة",slot:"wrist",mode:"hand",svg:id=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${idef(id)}</defs><ellipse cx="50" cy="50" rx="40" ry="20" fill="none" stroke="url(#g${id})" stroke-width="6"/><circle cx="50" cy="50" r="15" fill="#0c0a07" stroke="url(#g${id})" stroke-width="4"/><path d="M50 50 V40 M50 50 h8" stroke="#F7E6A8" stroke-width="2"/></svg>`},
+};
+
+const $=s=>document.querySelector(s);
+const video=$("#video"),canvas=$("#overlay"),ctx=canvas.getContext("2d");
+const statusEl=$("#status"),dot=$("#dot"),hudText=$("#hudText");
+let W=0,H=0,dpr=Math.min(window.devicePixelRatio||1,2);
+const active={necklace:null,earrings:null,ring:null,wrist:null};
+let mode="face";
+
+let uid=0;
+function buildTray(target,keys){
+  keys.forEach(key=>{const p=LIB[key];const el=document.createElement("div");el.className="item";el.dataset.key=key;
+    el.innerHTML=p.svg("i"+(uid++))+`<span class="nm">${p.nm}</span>`;el.onclick=()=>toggle(key,el);$(target).appendChild(el);});
+}
+buildTray("#faceItems",["necklace","earrings"]);
+buildTray("#handItems",["ring","bracelet","watch"]);
+
+function toggle(key,el){
+  const p=LIB[key],isOn=active[p.slot]===key;
+  document.querySelectorAll(".item").forEach(n=>{if(LIB[n.dataset.key].slot===p.slot)n.classList.remove("active");});
+  active[p.slot]=isOn?null:key;
+  if(!isOn)el.classList.add("active");
+  const handOn=active.ring||active.wrist;
+  mode=(p.mode==="hand"&&!isOn)?"hand":(p.mode==="face"&&!isOn)?"face":(handOn?"hand":"face");
+}
+
+/* ---------------- camera + models ---------------- */
+let faceLM=null,handLM=null,running=false;
+async function start(){
+  statusEl.querySelector("p").textContent="جارٍ تجهيز المرآة الذكية…";
+  statusEl.querySelector("small").textContent="نحمّل محرّك الواقع المعزّز ونطلب إذن الكاميرا.";
+  statusEl.querySelector(".glyph").outerHTML='<div class="spinner"></div>';
+  $("#startBtn").remove();
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:1280,height:960},audio:false});
+    video.srcObject=stream;await video.play();
+  }catch(e){return fail("تعذّر فتح الكاميرا. تأكد من السماح بالوصول للكاميرا (ولازم الرابط يكون HTTPS على الجوال).");}
+  try{
+    const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm");
+    faceLM=await FaceLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",delegate:"GPU"},runningMode:"VIDEO",numFaces:1});
+    handLM=await HandLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",delegate:"GPU"},runningMode:"VIDEO",numHands:1});
+  }catch(e){return fail("تعذّر تحميل محرّك الواقع المعزّز. تأكد من الإنترنت وافتح في متصفح حديث.");}
+  resize();window.addEventListener("resize",resize);
+  running=true;statusEl.classList.add("hidden");dot.classList.remove("off");$("#captureBtn").disabled=false;loop();
+}
+function fail(msg){statusEl.classList.remove("hidden");const sp=statusEl.querySelector(".spinner");if(sp)sp.outerHTML='<div class="glyph">⚠️</div>';statusEl.querySelector("p").textContent="تعذّر التشغيل";statusEl.querySelector("small").textContent=msg;}
+$("#startBtn").onclick=start;
+$("#resetBtn").onclick=()=>{for(const k in active)active[k]=null;document.querySelectorAll(".item").forEach(n=>n.classList.remove("active"));};
+function resize(){W=canvas.clientWidth;H=canvas.clientHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+
+/* cover-fit mapping normalized -> mirrored screen px */
+function mapper(){const sw=video.videoWidth,sh=video.videoHeight,sc=Math.max(W/sw,H/sh),dw=sw*sc,dh=sh*sc,dx=(W-dw)/2,dy=(H-dh)/2;
+  return lm=>({x:W-(dx+lm.x*dw),y:dy+lm.y*dh});}
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const ang=(a,b)=>Math.atan2(b.y-a.y,b.x-a.x);
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+/* landmark smoothing to reduce jitter */
+let prevF=null,prevH=null;
+function smooth(arr,prev){if(!prev||prev.length!==arr.length)return arr.map(p=>({x:p.x,y:p.y,z:p.z}));
+  return arr.map((p,i)=>({x:lerp(prev[i].x,p.x,.5),y:lerp(prev[i].y,p.y,.5),z:p.z}));}
+
+/* ---------------- jewellery drawing primitives ---------------- */
+function metalGrad(C,A){const g=ctx.createLinearGradient(C.x,C.y-A,C.x,C.y+A);
+  g.addColorStop(0,"#7d5e23");g.addColorStop(.45,"#F7E6A8");g.addColorStop(.55,"#E7CE84");g.addColorStop(1,"#B98B33");return g;}
+// annulus band wrapping a limb (phi = limb direction); skin shows through the hole
+function band(C,A,B,phi,inner){
+  const rot=phi+Math.PI/2;
+  ctx.save();
+  ctx.shadowColor="rgba(0,0,0,.45)";ctx.shadowBlur=A*0.25;ctx.shadowOffsetY=A*0.10;
+  ctx.beginPath();
+  ctx.ellipse(C.x,C.y,A,B,rot,0,Math.PI*2);
+  ctx.ellipse(C.x,C.y,A*inner,B*inner,rot,0,Math.PI*2);
+  ctx.fillStyle=metalGrad(C,A);ctx.fill("evenodd");
+  ctx.restore();
+  // depth shading: dim the upper (back) rim, brighten lower (front) rim
+  ctx.save();ctx.beginPath();ctx.rect(C.x-A*1.4,C.y-A*1.4,A*2.8,A*1.4);ctx.clip();
+  ctx.beginPath();ctx.ellipse(C.x,C.y,(A+A*inner)/2,(B+B*inner)/2,rot,0,Math.PI*2);
+  ctx.strokeStyle="rgba(0,0,0,.28)";ctx.lineWidth=A*(1-inner)*0.9;ctx.stroke();ctx.restore();
+  ctx.save();ctx.beginPath();ctx.rect(C.x-A*1.4,C.y,A*2.8,A*1.4);ctx.clip();
+  ctx.beginPath();ctx.ellipse(C.x,C.y,(A+A*inner)/2,(B+B*inner)/2,rot,0,Math.PI*2);
+  ctx.strokeStyle="rgba(255,243,205,.5)";ctx.lineWidth=A*(1-inner)*0.5;ctx.stroke();ctx.restore();
+}
+function diamond(C,s){
+  const g=ctx.createRadialGradient(C.x-s*0.25,C.y-s*0.25,s*0.1,C.x,C.y,s);
+  g.addColorStop(0,"#ffffff");g.addColorStop(.4,"#cfeaff");g.addColorStop(1,"#6a9ec2");
+  ctx.save();ctx.translate(C.x,C.y);
+  ctx.shadowColor="rgba(0,0,0,.4)";ctx.shadowBlur=s*0.6;
+  ctx.beginPath();ctx.moveTo(0,-s);ctx.lineTo(s*0.82,-s*0.15);ctx.lineTo(0,s);ctx.lineTo(-s*0.82,-s*0.15);ctx.closePath();
+  ctx.fillStyle=g;ctx.fill();ctx.shadowBlur=0;
+  ctx.strokeStyle="rgba(255,255,255,.6)";ctx.lineWidth=Math.max(1,s*0.07);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(-s*0.82,-s*0.15);ctx.lineTo(s*0.82,-s*0.15);ctx.strokeStyle="rgba(255,255,255,.35)";ctx.lineWidth=Math.max(.6,s*0.04);ctx.stroke();
+  ctx.restore();
+}
+function drop(C,s,a){ // hanging gem along direction a
+  const ex=Math.cos(a),ey=Math.sin(a),cc={x:C.x+ex*s*0.95,y:C.y+ey*s*0.95};
+  ctx.beginPath();ctx.moveTo(C.x,C.y);ctx.lineTo(cc.x-ex*s*0.45,cc.y-ey*s*0.45);
+  ctx.strokeStyle="#D9B45C";ctx.lineWidth=Math.max(1.4,s*0.12);ctx.lineCap="round";ctx.stroke();
+  const g=ctx.createRadialGradient(cc.x-s*0.12,cc.y-s*0.12,s*0.05,cc.x,cc.y,s*0.6);
+  g.addColorStop(0,"#fff");g.addColorStop(.4,"#cfeaff");g.addColorStop(1,"#6a9ec2");
+  ctx.save();ctx.translate(cc.x,cc.y);ctx.rotate(a-Math.PI/2);
+  ctx.shadowColor="rgba(0,0,0,.35)";ctx.shadowBlur=s*0.4;
+  ctx.beginPath();ctx.moveTo(0,-s*0.5);ctx.quadraticCurveTo(s*0.42,-s*0.05,0,s*0.62);ctx.quadraticCurveTo(-s*0.42,-s*0.05,0,-s*0.5);ctx.closePath();
+  ctx.fillStyle=g;ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle="rgba(255,255,255,.5)";ctx.lineWidth=Math.max(1,s*0.05);ctx.stroke();ctx.restore();
+}
+
+/* ---------------- compose pieces on body ---------------- */
+function drawNecklace(P,lm){
+  const eR=P(lm[234]),eL=P(lm[454]),chin=P(lm[152]),top=P(lm[10]);
+  const fw=dist(eR,eL);
+  let ux=eL.x-eR.x,uy=eL.y-eR.y;const ul=Math.hypot(ux,uy)||1;ux/=ul;uy/=ul;
+  let dx=chin.x-top.x,dy=chin.y-top.y;const dl=Math.hypot(dx,dy)||1;dx/=dl;dy/=dl;
+  const mid={x:chin.x+dx*fw*0.32,y:chin.y+dy*fw*0.32},half=fw*0.92;
+  const Lp={x:mid.x-ux*half,y:mid.y-uy*half},Rp={x:mid.x+ux*half,y:mid.y+uy*half};
+  const ctrl={x:mid.x+dx*fw*1.55,y:mid.y+dy*fw*1.55};
+  const g=ctx.createLinearGradient(Lp.x,Lp.y,Rp.x,Rp.y);g.addColorStop(0,"#B98B33");g.addColorStop(.5,"#F7E6A8");g.addColorStop(1,"#B98B33");
+  ctx.save();ctx.shadowColor="rgba(0,0,0,.35)";ctx.shadowBlur=fw*0.05;ctx.shadowOffsetY=fw*0.025;
+  ctx.beginPath();ctx.moveTo(Lp.x,Lp.y);ctx.quadraticCurveTo(ctrl.x,ctrl.y,Rp.x,Rp.y);
+  ctx.lineWidth=Math.max(2,fw*0.03);ctx.strokeStyle=g;ctx.lineCap="round";ctx.stroke();ctx.restore();
+  const low={x:mid.x+dx*fw*0.82,y:mid.y+dy*fw*0.82};
+  diamond(low,fw*0.12);
+}
+function drawEarrings(P,lm){
+  const eR=P(lm[234]),eL=P(lm[454]),chin=P(lm[152]),top=P(lm[10]),fw=dist(eR,eL);
+  let dx=chin.x-top.x,dy=chin.y-top.y;const dl=Math.hypot(dx,dy)||1;dx/=dl;dy/=dl;const a=Math.atan2(dy,dx);
+  [eR,eL].forEach(e=>{const lobe={x:e.x+dx*fw*0.06,y:e.y+dy*fw*0.06};drop(lobe,fw*0.16,a);});
+}
+function drawRing(P,lm){
+  const mcp=P(lm[13]),pip=P(lm[14]),idx=P(lm[5]),pinky=P(lm[17]);
+  const palmW=dist(idx,pinky),phi=ang(mcp,pip);
+  const C={x:lerp(mcp.x,pip.x,.42),y:lerp(mcp.y,pip.y,.42)};
+  const A=palmW*0.135,B=A*0.5;
+  band(C,A,B,phi,0.5);
+  diamond(C,A*0.62);
+}
+function drawWrist(P,lm,kind){
+  const wrist=P(lm[0]),mid=P(lm[9]),idx=P(lm[5]),pinky=P(lm[17]);
+  const palmW=dist(idx,pinky),phi=ang(mid,wrist);
+  let fx=wrist.x-mid.x,fy=wrist.y-mid.y;const fl=Math.hypot(fx,fy)||1;fx/=fl;fy/=fl;
+  const C={x:wrist.x+fx*palmW*0.10,y:wrist.y+fy*palmW*0.10};
+  const A=palmW*0.5,B=A*0.34;
+  band(C,A,B,phi,kind==="watch"?0.66:0.72);
+  if(kind==="watch"){
+    ctx.save();ctx.translate(C.x,C.y);ctx.rotate(phi);
+    const r=A*0.4,g=ctx.createLinearGradient(0,-r,0,r);g.addColorStop(0,"#F7E6A8");g.addColorStop(1,"#9A742C");
+    ctx.beginPath();ctx.arc(0,0,r,0,7);ctx.fillStyle=g;ctx.fill();
+    ctx.beginPath();ctx.arc(0,0,r*0.72,0,7);ctx.fillStyle="#0c0a07";ctx.fill();
+    ctx.strokeStyle="#F7E6A8";ctx.lineWidth=Math.max(1.4,r*0.1);ctx.lineCap="round";
+    ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,-r*0.45);ctx.moveTo(0,0);ctx.lineTo(r*0.38,0);ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ---------------- loop ---------------- */
+let lastF=0,lastH=0;
+function loop(){
+  if(!running)return;
+  ctx.clearRect(0,0,W,H);
+  if(video.readyState>=2&&video.videoWidth){
+    const P=mapper(),now=performance.now();let det=false;
+    if(mode==="face"&&faceLM){
+      const ts=Math.max(now,lastF+1);lastF=ts;const r=faceLM.detectForVideo(video,ts);
+      if(r.faceLandmarks&&r.faceLandmarks[0]){det=true;const lm=smooth(r.faceLandmarks[0],prevF);prevF=lm;
+        if(active.necklace)drawNecklace(P,lm);if(active.earrings)drawEarrings(P,lm);}
+    }else if(mode==="hand"&&handLM){
+      const ts=Math.max(now,lastH+1);lastH=ts;const r=handLM.detectForVideo(video,ts);
+      if(r.landmarks&&r.landmarks[0]){det=true;const lm=smooth(r.landmarks[0],prevH);prevH=lm;
+        if(active.ring)drawRing(P,lm);if(active.wrist)drawWrist(P,lm,active.wrist==="watch"?"watch":"bangle");}
+    }
+    dot.classList.toggle("off",!det);
+    hudText.textContent=(mode==="face"?"وضع الوجه":"وضع اليد")+(det?" · متتبَّع":" · ابحث عنك…");
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------------- capture ---------------- */
+$("#captureBtn").onclick=()=>{
+  const cw=W*dpr,ch=H*dpr,out=document.createElement("canvas");out.width=cw;out.height=ch;const c=out.getContext("2d");
+  const sw=video.videoWidth,sh=video.videoHeight,sc=Math.max(W/sw,H/sh),dw=sw*sc*dpr,dh=sh*sc*dpr,dx=(cw-dw)/2,dy=(ch-dh)/2;
+  c.save();c.translate(cw,0);c.scale(-1,1);c.drawImage(video,cw-dx-dw,dy,dw,dh);c.restore();
+  c.drawImage(canvas,0,0);
+  out.toBlob(b=>{const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="amar-jewel-ar.png";a.click();setTimeout(()=>URL.revokeObjectURL(u),2000);toast("✨ تم حفظ الصورة");},"image/png");
+};
+let tt;function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("show"),2400);}
+</script>
+</body>
+</html>
