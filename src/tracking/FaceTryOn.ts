@@ -8,7 +8,7 @@ import {
   type BuiltPiece,
 } from '../engine';
 import { createFaceOccluders, type FaceOccluders } from '../occlusion/faceOccluders';
-import { dist, FACE, makeCoverMapper, normalize2, type Landmark } from './mapping';
+import { dist, EAR_LOBE_A, EAR_LOBE_B, FACE, makeCoverMapper, normalize2, type Landmark, type Vec2 } from './mapping';
 import { type FaceFrame } from './faceLandmarker';
 
 /**
@@ -149,6 +149,7 @@ export class FaceTryOn {
     const earL = P(lm[FACE.earL]);
     const chin = P(lm[FACE.chin]);
     const fore = P(lm[FACE.forehead]);
+    const noseX = P(lm[FACE.noseTip]).x;
     const fw = dist(earR, earL) || 1;
     const down = normalize2(chin.x - fore.x, chin.y - fore.y);
 
@@ -160,18 +161,23 @@ export class FaceTryOn {
 
     this.occluders.group.visible = true;
 
-    // ---- Necklace: drapes on the chest, scaled to ~shoulder width ----
+    // ---- Necklace: drapes around the neck/collarbone ----
     this.necklace.group.visible = this.showNecklace;
     if (this.showNecklace) {
-      // Anchor the top of the drape below the jaw, on the upper chest.
-      const nx = chin.x + down.x * fw * 0.95;
-      const ny = chin.y + down.y * fw * 0.95;
+      // Anchor the top of the drape just below the jaw, by the sides of the neck.
+      const nx = chin.x + down.x * fw * 0.8;
+      const ny = chin.y + down.y * fw * 0.8;
       this.necklace.group.position.set(nx, ny, BASE_Z + fw * 0.05);
       this.necklace.group.quaternion.identity();
-      this.necklace.group.scale.setScalar(fw * 1.0);
+      // Narrower than shoulder width so it rests on the neck/collarbone.
+      this.necklace.group.scale.setScalar(fw * 0.68);
       // Neck/jaw occluder sits higher (at the actual neck, above the drape) so
       // it can hide anything passing behind the neck without covering the chain.
-      this.occluders.neck.position.set(chin.x + down.x * fw * 0.3, chin.y + down.y * fw * 0.3, BASE_Z);
+      this.occluders.neck.position.set(
+        chin.x + down.x * fw * 0.3,
+        chin.y + down.y * fw * 0.3,
+        BASE_Z,
+      );
       this.occluders.neck.scale.set(fw * 0.4, fw * 1.2, fw * 0.28);
     }
 
@@ -179,10 +185,10 @@ export class FaceTryOn {
     this.earringR.group.visible = this.showEarrings;
     this.earringL.group.visible = this.showEarrings;
     if (this.showEarrings) {
-      this.placeEarring(this.earringR, earR, lm[FACE.earR], down, fw);
-      this.placeEarring(this.earringL, earL, lm[FACE.earL], down, fw);
-      // Head occluder (slightly taller, reaching the lobes) hides the far
-      // earring when the head is turned.
+      this.placeEarring(this.earringR, EAR_LOBE_A, lm, P, noseX, fw);
+      this.placeEarring(this.earringL, EAR_LOBE_B, lm, P, noseX, fw);
+      // Head occluder (taller, reaching the lobes) hides the far earring when
+      // the head is turned.
       const hx = (earR.x + earL.x) / 2 - down.x * fw * 0.05;
       const hy = (earR.y + earL.y) / 2 - down.y * fw * 0.05;
       this.occluders.head.position.set(hx, hy, BASE_Z);
@@ -193,24 +199,42 @@ export class FaceTryOn {
     return true;
   }
 
+  /**
+   * Anchor an earring at the earlobe, estimated from the average of the lower
+   * face-oval landmarks for that ear (which track the head as it turns).
+   */
   private placeEarring(
     piece: BuiltPiece,
-    earScreen: { x: number; y: number },
-    earLm: Landmark,
-    down: { x: number; y: number },
+    indices: readonly number[],
+    lm: Landmark[],
+    P: (l: Landmark) => Vec2,
+    faceCenterX: number,
     fw: number,
   ): void {
-    // Drop to the earlobe (below the ear landmark) and seat the earring's hook
-    // there so the decorative drop hangs BELOW the lobe.
-    const lobeX = earScreen.x + down.x * fw * 0.22;
-    const lobeY = earScreen.y + down.y * fw * 0.22;
-    const scale = fw * 0.22; // smaller than before
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    for (const i of indices) {
+      const p = P(lm[i]);
+      sx += p.x;
+      sy += p.y;
+      sz += lm[i].z;
+    }
+    const n = indices.length;
+    let x = sx / n;
+    const y = sy / n;
+    const z = sz / n;
+    // Nudge outward (away from face centre) onto the ear edge.
+    const outward = Math.sign(x - faceCenterX) || 1;
+    x += outward * fw * 0.05;
+
+    const scale = fw * 0.15; // ~30% smaller than before
     // MediaPipe z is negative toward the camera, so the nearer ear is pushed
     // forward (+Z, in front of the head occluder) and the far ear behind it.
-    const zoff = -earLm.z * fw * EAR_DEPTH_GAIN;
-    // The earring model's hook is at local y≈0.9; offset down so the hook lands
-    // on the lobe and the drop dangles beneath it.
-    piece.group.position.set(lobeX, lobeY - 0.9 * scale, BASE_Z + fw * EAR_BASE_Z + zoff);
+    const zoff = -z * fw * EAR_DEPTH_GAIN;
+    // The earring's hook is at local y≈0.9; offset down so the hook lands on the
+    // lobe and the drop dangles beneath it.
+    piece.group.position.set(x, y - 0.9 * scale, BASE_Z + fw * EAR_BASE_Z + zoff);
     piece.group.quaternion.identity();
     piece.group.scale.setScalar(scale);
   }

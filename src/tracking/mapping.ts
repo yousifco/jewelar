@@ -78,3 +78,13 @@ export const FACE = {
   forehead: 10,
   noseTip: 1,
 } as const;
+
+/**
+ * Lower face-oval landmarks at earlobe height, per ear. The face mesh has no
+ * true ear vertices, but these silhouette points sit at the jaw-angle / lobe
+ * region and track the head as it turns — far better lobe anchors than the
+ * temple-level 234/454. (Verified against the canonical 468-point mesh: these
+ * are the contour points just below/in front of each ear.)
+ */
+export const EAR_LOBE_A = [132, 93, 58] as const; // person's right side
+export const EAR_LOBE_B = [361, 323, 288] as const; // person's left side
