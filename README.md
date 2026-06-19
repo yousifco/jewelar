@@ -40,6 +40,16 @@ pick a piece (ring / pendant / earring), metal (yellow / white / rose gold),
 gem (diamond / ruby / sapphire / emerald), and drag the lighting slider. Drag
 on the canvas to orbit; a moving light makes the gems sparkle.
 
+### Live AR try-on (Phase 2)
+The header link **التجربة المباشرة (AR)** (or `/tryon.html`) opens the camera
+try-on: a mirrored selfie view with a 3D **necklace** and **earrings** anchored
+to the face via MediaPipe **FaceLandmarker** (VIDEO mode, facial transformation
+matrix). Depth-only occluders for the neck/jaw and head hide the back of the
+necklace and the far earring so the jewellery looks *worn*. All tracking +
+rendering runs on-device; **camera access requires HTTPS** (GitHub Pages is
+HTTPS; `localhost` also works for `npm run dev`). MediaPipe Tasks Vision + its
+model are loaded from a CDN at runtime, so no WASM is bundled.
+
 ## Deploy (GitHub Pages, automatic)
 A GitHub Actions workflow (`.github/workflows/deploy.yml`) builds the app and
 deploys it to **GitHub Pages on every push to `main`**.

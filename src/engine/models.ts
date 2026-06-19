@@ -196,6 +196,56 @@ function buildEarring(): BuiltPiece {
   return { group, metalMeshes: metal, gemMeshes: gems };
 }
 
+/**
+ * A necklace for the face try-on (Phase 2): a chain that loops around the neck
+ * (a horizontal ellipse — front toward +Z/camera, back toward -Z) with a halo
+ * pendant draping at the front. Modelled with real depth so the neck occluder
+ * can hide the back arc → a "worn" look.
+ *
+ * Local space: centred on the neck, +Y up, +Z toward the camera, ~1 unit ≈ the
+ * neck half-width. The try-on scales/positions/orients the whole group.
+ */
+export function buildNecklace(): BuiltPiece {
+  const group = new THREE.Group();
+  const metal: THREE.Mesh[] = [];
+  const gems: THREE.Mesh[] = [];
+
+  const rx = 0.95; // left-right radius
+  const rz = 0.62; // front-back radius (depth)
+
+  // Chain: a thin torus laid flat into the XZ plane, squashed into an ellipse.
+  const chain = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.03, 18, 200));
+  chain.rotation.x = Math.PI / 2;
+  chain.scale.set(rx, rz, 1); // after the x-rotation this stretches X and Z
+  metal.push(chain);
+
+  // Pendant hanging from the front-most point of the chain (toward the camera).
+  const frontY = -0.05;
+  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.022, 16, 48));
+  bail.position.set(0, frontY, rz);
+  metal.push(bail);
+
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.035, 24, 96));
+  halo.position.set(0, frontY - 0.34, rz);
+  metal.push(halo);
+
+  const centre = gem(0.42, 'hi', gems);
+  centre.rotation.x = Math.PI / 2; // table faces the camera (+Z)
+  centre.position.set(0, frontY - 0.34, rz + 0.03);
+
+  const n = 12;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const small = gem(0.085, 'lo', gems);
+    small.rotation.x = Math.PI / 2;
+    small.position.set(Math.cos(a) * 0.26, frontY - 0.34 + Math.sin(a) * 0.26, rz + 0.05);
+    group.add(small);
+  }
+
+  group.add(chain, bail, halo, centre);
+  return { group, metalMeshes: metal, gemMeshes: gems };
+}
+
 const BUILDERS: Record<PieceKey, () => BuiltPiece> = {
   ring: buildRing,
   pendant: buildPendant,

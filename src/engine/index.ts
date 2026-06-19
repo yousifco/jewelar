@@ -9,4 +9,5 @@ export {
   type MetalKey,
   type GemKey,
 } from './materials';
-export { buildPiece, PIECE_NAMES, type PieceKey, type BuiltPiece } from './models';
+export { buildPiece, buildNecklace, PIECE_NAMES, type PieceKey, type BuiltPiece } from './models';
+export { createStudioEnvironment } from './environment';

@@ -69,6 +69,22 @@ body {
   background: rgba(203, 163, 80, 0.06);
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.badge-link {
+  text-decoration: none;
+  transition: 0.15s;
+}
+
+.badge-link:hover {
+  background: rgba(203, 163, 80, 0.18);
+  color: var(--gold-bright);
+}
+
 .hint {
   position: fixed;
   top: 64px;
