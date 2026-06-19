@@ -49,43 +49,49 @@ export class JewelryViewer {
     // Cap DPR lower on mobile to keep bloom affordable (≥30 fps target).
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-    this.camera.position.set(0, 0.4, 6);
+    // Pulled back with a touch more focal length so the whole piece sits
+    // centred with margin (catalog framing), not cropped.
+    this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    this.camera.position.set(0, 0.7, 9);
 
     // Bright procedural studio environment → punchy metal reflections.
     this.scene.environment = createStudioEnvironment(this.renderer);
 
-    // Hard key + cool rim + a fill, plus a moving flash for travelling sparkle.
-    const key = new THREE.DirectionalLight(0xfff4e2, 3.2);
+    // Soft key + cool rim + a fill, plus a moving flash for travelling sparkle.
+    // Kept gentle so the environment does most of the work and metal stays read.
+    const key = new THREE.DirectionalLight(0xfff4e2, 1.6);
     key.position.set(4, 6, 5);
-    const key2 = new THREE.DirectionalLight(0xffffff, 1.6);
+    const key2 = new THREE.DirectionalLight(0xffffff, 0.7);
     key2.position.set(-3, 2, 6);
-    const rim = new THREE.DirectionalLight(0xbcd2ff, 1.4);
+    const rim = new THREE.DirectionalLight(0xbcd2ff, 0.6);
     rim.position.set(-5, -1, -4);
-    this.flash = new THREE.PointLight(0xffffff, 14, 24, 1.5);
+    this.flash = new THREE.PointLight(0xffffff, 6, 24, 1.5);
     this.scene.add(key, key2, rim, this.flash);
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.autoRotate = true;
-    this.controls.autoRotateSpeed = 2.2;
-    this.controls.minDistance = 3.5;
-    this.controls.maxDistance = 9;
+    this.controls.autoRotateSpeed = 1.0;
+    this.controls.minDistance = 5;
+    this.controls.maxDistance = 12;
     this.controls.enablePan = false;
+    // Frame the piece centred (heads/drops sit above the band's origin).
+    this.controls.target.set(0, 0.6, 0);
+    this.controls.update();
 
     // Post-processing: render → bloom → tone-map/sRGB output.
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
-      0.45, // strength — subtle, only the hottest glints
-      0.5, // radius
-      0.82, // threshold — leave mid-tones untouched
+      0.28, // strength — only tiny pinpoint glints, never whole surfaces
+      0.3, // radius — tight
+      0.9, // threshold — only the very brightest specular pixels bloom
     );
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());

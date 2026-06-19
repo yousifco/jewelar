@@ -36,18 +36,19 @@ export interface GemSpec {
   name: string;
 }
 
-// Polished karat-gold tones (warm, bright — not brown).
+// Polished karat-gold tones (warm, bright — not brown). envMapIntensity kept
+// in the ~1.3–1.5 range so gold reads as solid reflective metal, not a glow.
 export const METALS: Record<MetalKey, MetalSpec> = {
-  yellow: { color: 0xffd27a, roughness: 0.09, envMapIntensity: 2.8, name: 'ذهب أصفر' },
-  white: { color: 0xece9e3, roughness: 0.08, envMapIntensity: 3.0, name: 'ذهب أبيض' },
-  rose: { color: 0xf7c6b0, roughness: 0.1, envMapIntensity: 2.8, name: 'ذهب وردي' },
+  yellow: { color: 0xffd27a, roughness: 0.11, envMapIntensity: 1.35, name: 'ذهب أصفر' },
+  white: { color: 0xece9e3, roughness: 0.1, envMapIntensity: 1.5, name: 'ذهب أبيض' },
+  rose: { color: 0xf7c6b0, roughness: 0.12, envMapIntensity: 1.35, name: 'ذهب وردي' },
 };
 
 export const GEMS: Record<GemKey, GemSpec> = {
-  diamond: { color: 0xffffff, attenuationDistance: 8, transmission: 1.0, name: 'ألماس' },
-  ruby: { color: 0xff1f47, attenuationDistance: 0.45, transmission: 0.92, name: 'ياقوت' },
-  sapphire: { color: 0x2658ff, attenuationDistance: 0.5, transmission: 0.92, name: 'زفير' },
-  emerald: { color: 0x10c074, attenuationDistance: 0.5, transmission: 0.9, name: 'زمرّد' },
+  diamond: { color: 0xffffff, attenuationDistance: 6, transmission: 0.92, name: 'ألماس' },
+  ruby: { color: 0xff1f47, attenuationDistance: 0.4, transmission: 0.82, name: 'ياقوت' },
+  sapphire: { color: 0x2658ff, attenuationDistance: 0.45, transmission: 0.82, name: 'زفير' },
+  emerald: { color: 0x10c074, attenuationDistance: 0.45, transmission: 0.8, name: 'زمرّد' },
 };
 
 /** Create a fresh polished-gold material for the given alloy. */
@@ -80,14 +81,15 @@ export function makeGemMaterial(key: GemKey): THREE.MeshPhysicalMaterial {
     ior: 2.42,
     specularIntensity: 1,
     specularColor: new THREE.Color(0xffffff),
-    envMapIntensity: 3.5,
+    // Moderate so facets keep dark contrast between them instead of washing out.
+    envMapIntensity: 1.5,
     clearcoat: 1,
-    clearcoatRoughness: 0.02,
+    clearcoatRoughness: 0.03,
     attenuationColor: new THREE.Color(g.color),
     attenuationDistance: g.attenuationDistance,
-    // Faint thin-film tint approximating dispersion "fire" on the facet edges.
-    iridescence: 0.18,
-    iridescenceIOR: 1.6,
+    // Very faint thin-film tint approximating dispersion "fire" on facet edges.
+    iridescence: 0.08,
+    iridescenceIOR: 1.5,
   });
   mat.iridescenceThicknessRange = [120, 420];
   return mat;

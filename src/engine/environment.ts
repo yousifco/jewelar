@@ -34,20 +34,24 @@ function buildStudioScene(): THREE.Scene {
 
   const center: [number, number, number] = [0, 0, 0];
 
-  // Large overhead softbox — the main broad highlight that sweeps polished gold.
-  scene.add(panel(14, 14, [0, 9, 1], center, [5.5, 5.2, 4.6]));
-  // Warm key softbox, front-right.
-  scene.add(panel(10, 12, [8, 3, 7], center, [6.0, 5.0, 3.6]));
-  // Cool rim/fill from back-left for separation and blue glints in stones.
-  scene.add(panel(9, 11, [-9, 2, -4], center, [3.4, 4.0, 6.0]));
-  // Lower bounce/fill so the underside of metal isn't dead.
-  scene.add(panel(12, 6, [0, -6, 5], center, [1.6, 1.5, 1.3]));
+  // Intensities kept modest so metal reflects the studio without the panels
+  // self-illuminating the surface into a glow. Reflections, not light sources.
 
-  // Thin bright strips → crisp streak highlights that travel across facets as
-  // the piece rotates (the "sparkle lines").
-  scene.add(panel(0.6, 9, [5, 4, -2], center, [9, 9, 9]));
-  scene.add(panel(0.6, 9, [-4, 5, 3], center, [8, 8, 9]));
-  scene.add(panel(7, 0.5, [-2, 7, -3], center, [8, 7.5, 7]));
+  // Large overhead softbox — the main broad highlight that sweeps polished gold.
+  scene.add(panel(14, 14, [0, 9, 1], center, [1.7, 1.6, 1.45]));
+  // Warm key softbox, front-right.
+  scene.add(panel(10, 12, [8, 3, 7], center, [1.9, 1.6, 1.2]));
+  // Cool rim/fill from back-left for separation and blue glints in stones.
+  scene.add(panel(9, 11, [-9, 2, -4], center, [1.0, 1.2, 1.7]));
+  // Lower bounce/fill so the underside of metal isn't dead.
+  scene.add(panel(12, 6, [0, -6, 5], center, [0.5, 0.48, 0.42]));
+
+  // Thin brighter strips → crisp pinpoint streak highlights that travel across
+  // facets as the piece rotates (the "sparkle lines"). These are the only
+  // panels meant to read as hot glints.
+  scene.add(panel(0.5, 9, [5, 4, -2], center, [3.0, 3.0, 3.0]));
+  scene.add(panel(0.5, 9, [-4, 5, 3], center, [2.6, 2.6, 2.9]));
+  scene.add(panel(7, 0.4, [-2, 7, -3], center, [2.6, 2.5, 2.3]));
 
   return scene;
 }
