@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0E0B07" />
+    <title>محرك العرض الواقعي — JewelAR</title>
+    <meta
+      name="description"
+      content="تجربة المجوهرات الواقعية على جهازك — ذهب ولمعان أحجار بدقة عالية، بدون خوادم."
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-name">JewelAR</div>
+        <div class="brand-sub">محرك العرض الواقعي — PBR · انعكاسات بيئية</div>
+      </div>
+      <span class="badge">المرحلة ١ · جودة العرض</span>
+    </header>
+
+    <p class="hint">اسحب لتدوير القطعة · لاحظ لمعان الذهب وتلألؤ الأحجار مع الحركة</p>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <div class="row">
+          <span class="lbl">القطعة</span>
+          <div class="seg" id="pieces"></div>
+        </div>
+        <div class="row">
+          <span class="lbl">المعدن</span>
+          <div class="seg" id="metals"></div>
+        </div>
+        <div class="row">
+          <span class="lbl">الحجر</span>
+          <div class="seg" id="gems"></div>
+        </div>
+        <div class="row">
+          <span class="lbl">الإضاءة</span>
+          <input type="range" id="exposure" min="0.4" max="2.4" step="0.05" value="1.2" />
+        </div>
+      </div>
+    </section>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>جارٍ تجهيز محرك العرض…</p>
+      <small>يُحمّل محرك ٣D لمرة واحدة. كل العرض يتم على جهازك — بدون خوادم.</small>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
