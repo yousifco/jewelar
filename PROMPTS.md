@@ -74,13 +74,16 @@ model/category and anchor offsets). Scaffold a minimal Remix app only for settin
 pricing (billing); the AR stays fully client-side. Document install/test steps. Commit + PR.
 ```
 
-## Prompt 7 — ERP integration (Phase 7)
+## Prompt 7 — Store-platform data integration (Phase 7)
 ```
-Implement Phase 7 from BUILD_SPEC.md. Add a client module that calls a read-only AMARSOFT ERP endpoint
-GET /piece/{sku} returning { karat, weightG, makingCharge, stoneValue, liveGoldRatePerG } and computes
-live price = weightG*rate*karatFactor + makingCharge + stoneValue. Show the live price in the try-on UI,
-refreshing on a 1–5 min cache. Make the endpoint base URL + API key configurable via env/merchant
-settings. Add a mock server/fixture so it runs without the real ERP. Commit + PR.
+Implement Phase 7 from BUILD_SPEC.md. Do NOT integrate any ERP. Integrate with the STORE PLATFORM,
+Shopify first, with a pluggable adapter for future platforms. Build a StoreAdapter interface
+{ getProduct(id), getPrice(id), getModel(id) } and a ShopifyAdapter that reads product, variants, price,
+and jewelar.* metafields (category, model_url, karat, weight_g, making_charge, stone_value, optional
+gold_rate_per_g). Price display defaults to the store's variant price; if gold_rate_per_g exists, optionally
+recompute weight_g*gold_rate_per_g*karatFactor + making_charge + stone_value (cache 1-5 min). Wire the live
+price + correct 3D model/category into the try-on UI. Add mock fixtures so it runs without a live store, and
+stub WooCommerceAdapter/SallaAdapter/ZidAdapter for the future. Commit + PR.
 ```
 
 ## Prompt 8 — Performance, analytics, QA (Phase 8)
