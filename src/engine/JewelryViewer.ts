@@ -54,9 +54,9 @@ export class JewelryViewer {
 
     this.scene = new THREE.Scene();
     // Pulled back with a touch more focal length so the whole piece sits
-    // centred with margin (catalog framing), not cropped.
+    // centred with margin (catalog framing), slightly elevated for a 3/4 view.
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-    this.camera.position.set(0, 0.7, 9);
+    this.camera.position.set(0, 1.3, 8.5);
 
     // Bright procedural studio environment → punchy metal reflections.
     this.scene.environment = createStudioEnvironment(this.renderer);
@@ -81,7 +81,7 @@ export class JewelryViewer {
     this.controls.maxDistance = 12;
     this.controls.enablePan = false;
     // Frame the piece centred (heads/drops sit above the band's origin).
-    this.controls.target.set(0, 0.6, 0);
+    this.controls.target.set(0, 0.4, 0);
     this.controls.update();
 
     // Post-processing: render → bloom → tone-map/sRGB output.
@@ -89,9 +89,9 @@ export class JewelryViewer {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
-      0.28, // strength — only tiny pinpoint glints, never whole surfaces
-      0.3, // radius — tight
-      0.9, // threshold — only the very brightest specular pixels bloom
+      0.16, // strength — barely-there glint, no glowing gold halos
+      0.25, // radius — tight
+      0.92, // threshold — only the very brightest specular pixels bloom
     );
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());

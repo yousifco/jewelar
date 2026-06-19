@@ -46,12 +46,12 @@ function buildStudioScene(): THREE.Scene {
   // Lower bounce/fill so the underside of metal isn't dead.
   scene.add(panel(12, 6, [0, -6, 5], center, [0.5, 0.48, 0.42]));
 
-  // Thin brighter strips → crisp pinpoint streak highlights that travel across
-  // facets as the piece rotates (the "sparkle lines"). These are the only
-  // panels meant to read as hot glints.
-  scene.add(panel(0.5, 9, [5, 4, -2], center, [3.0, 3.0, 3.0]));
-  scene.add(panel(0.5, 9, [-4, 5, 3], center, [2.6, 2.6, 2.9]));
-  scene.add(panel(7, 0.4, [-2, 7, -3], center, [2.6, 2.5, 2.3]));
+  // Thin strips → crisp pinpoint streak highlights that travel across facets as
+  // the piece rotates (the "sparkle lines"). Kept just bright enough to glint
+  // without making the gold bloom into a halo.
+  scene.add(panel(0.5, 9, [5, 4, -2], center, [2.1, 2.1, 2.1]));
+  scene.add(panel(0.5, 9, [-4, 5, 3], center, [1.9, 1.9, 2.1]));
+  scene.add(panel(7, 0.4, [-2, 7, -3], center, [1.9, 1.85, 1.7]));
 
   return scene;
 }

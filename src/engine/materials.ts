@@ -45,10 +45,10 @@ export const METALS: Record<MetalKey, MetalSpec> = {
 };
 
 export const GEMS: Record<GemKey, GemSpec> = {
-  diamond: { color: 0xffffff, attenuationDistance: 6, transmission: 0.92, name: 'ألماس' },
-  ruby: { color: 0xff1f47, attenuationDistance: 0.4, transmission: 0.82, name: 'ياقوت' },
-  sapphire: { color: 0x2658ff, attenuationDistance: 0.45, transmission: 0.82, name: 'زفير' },
-  emerald: { color: 0x10c074, attenuationDistance: 0.45, transmission: 0.8, name: 'زمرّد' },
+  diamond: { color: 0xffffff, attenuationDistance: 6, transmission: 0.85, name: 'ألماس' },
+  ruby: { color: 0xff1f47, attenuationDistance: 0.35, transmission: 0.7, name: 'ياقوت' },
+  sapphire: { color: 0x2658ff, attenuationDistance: 0.4, transmission: 0.7, name: 'زفير' },
+  emerald: { color: 0x10c074, attenuationDistance: 0.4, transmission: 0.68, name: 'زمرّد' },
 };
 
 /** Create a fresh polished-gold material for the given alloy. */
@@ -72,27 +72,23 @@ export function makeMetalMaterial(key: MetalKey): THREE.MeshStandardMaterial {
  */
 export function makeGemMaterial(key: GemKey): THREE.MeshPhysicalMaterial {
   const g = GEMS[key];
-  const mat = new THREE.MeshPhysicalMaterial({
+  // No clearcoat / iridescence: those add a milky surface layer that washes a
+  // faceted stone to flat white. The high IOR (2.42) already gives a strong
+  // facet specular, and a thicker slab deepens the refraction so facets keep
+  // dark/light contrast like a real cut stone.
+  return new THREE.MeshPhysicalMaterial({
     color: g.color,
     metalness: 0,
     roughness: 0,
     transmission: g.transmission,
-    thickness: 0.9,
+    thickness: 1.4,
     ior: 2.42,
     specularIntensity: 1,
     specularColor: new THREE.Color(0xffffff),
-    // Moderate so facets keep dark contrast between them instead of washing out.
-    envMapIntensity: 1.5,
-    clearcoat: 1,
-    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.1,
     attenuationColor: new THREE.Color(g.color),
     attenuationDistance: g.attenuationDistance,
-    // Very faint thin-film tint approximating dispersion "fire" on facet edges.
-    iridescence: 0.08,
-    iridescenceIOR: 1.5,
   });
-  mat.iridescenceThicknessRange = [120, 420];
-  return mat;
 }
 
 /** Mutate an existing metal material in place to a new alloy. */
