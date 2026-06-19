@@ -66,9 +66,16 @@ shopper's browser. No server-side inference or image storage. Owned product, no 
   doc (model spec, scale convention in mm, naming by SKU).
 - **Phase 6 — Shopify packaging.** Theme App Extension (app block) on product template; merchant settings
   (map product → model/category, anchor offsets); billing via Shopify managed pricing. Keep AR client-side.
-- **Phase 7 — ERP integration.** Read-only endpoint to AMARSOFT ERP: `GET /piece/{sku}` →
-  `{karat, weightG, makingCharge, stoneValue, liveGoldRatePerG}`; price = `weightG*rate*karatFactor + making + stone`;
-  show live price in try-on UI; cache rate 1–5 min; auth via API key/JWT.
+- **Phase 7 — Store-platform data integration.** Pull product data + price from the **store platform**,
+  not from any ERP. Use a **pluggable data adapter** so platforms can be added later.
+  - **ShopifyAdapter (now):** read product, variants, price, and metafields. Suggested metafields
+    (namespace `jewelar`): `category` (ring/necklace/...), `model_url` (glTF/GLB), `karat`, `weight_g`,
+    `making_charge`, `stone_value`, and optional `gold_rate_per_g`.
+  - **Price display:** default = the store's own variant price. If `gold_rate_per_g` is present, optionally
+    recompute: `weight_g * gold_rate_per_g * karatFactor + making_charge + stone_value`. Cache rate 1–5 min.
+  - **Adapter interface** `StoreAdapter { getProduct(id), getPrice(id), getModel(id) }` with future
+    `WooCommerceAdapter`, `SallaAdapter`, `ZidAdapter`, `CustomRestAdapter`. No ERP coupling anywhere.
+    Provide mock fixtures so it runs without a live store.
 - **Phase 8 — Perf + analytics + QA.** FPS guard / model-quality fallback; events (open, try, snapshot,
   add-to-cart); QA matrix iOS Safari + Android Chrome.
 
