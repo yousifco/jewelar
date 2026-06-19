@@ -1,0 +1,196 @@
+:root {
+  --velvet: #0e0b07;
+  --gold: #cba350;
+  --gold-bright: #f2d98a;
+  --ivory: #f4ecda;
+  --muted: #9a8c6e;
+  --line: rgba(203, 163, 80, 0.22);
+  --panel: rgba(20, 15, 8, 0.78);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  direction: rtl;
+  color: var(--ivory);
+  font-family: 'Segoe UI', 'Tahoma', system-ui, sans-serif;
+  background: radial-gradient(120% 90% at 50% 0%, #241a0d 0%, var(--velvet) 55%, #050403 100%);
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+}
+
+.brand-name {
+  font-family: Georgia, serif;
+  letter-spacing: 0.18em;
+  font-size: 18px;
+  color: var(--gold-bright);
+  font-weight: 600;
+}
+
+.brand-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.badge {
+  font-size: 11px;
+  color: var(--gold);
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(203, 163, 80, 0.06);
+}
+
+.hint {
+  position: fixed;
+  top: 64px;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  margin: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.panel {
+  position: fixed;
+  z-index: 3;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(180deg, transparent, rgba(7, 5, 3, 0.85) 40%);
+  padding: 30px 18px calc(20px + env(safe-area-inset-bottom));
+}
+
+.panel-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.row .lbl {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 70px;
+}
+
+.seg {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(203, 163, 80, 0.06);
+  color: var(--ivory);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.chip:hover {
+  background: rgba(203, 163, 80, 0.16);
+}
+
+.chip.on {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color: var(--velvet);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+input[type='range'] {
+  flex: 1;
+  accent-color: var(--gold);
+  height: 4px;
+}
+
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 30px;
+  transition: 0.4s;
+  background: radial-gradient(120% 90% at 50% 0%, #241a0d 0%, var(--velvet) 55%, #050403 100%);
+}
+
+.loading.hide {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(203, 163, 80, 0.25);
+  border-top-color: var(--gold-bright);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading p {
+  color: var(--ivory);
+  font-size: 14px;
+  margin: 0;
+}
+
+.loading small {
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 280px;
+  line-height: 1.6;
+}
