@@ -45,9 +45,6 @@ export class FaceTryOn {
 
   private showNecklace = true;
   private showEarrings = true;
-  private readonly smoothQ = new THREE.Quaternion();
-  private readonly frameQ = new THREE.Quaternion();
-  private readonly tmpM = new THREE.Matrix4();
   private elapsed = 0;
   private clock = new THREE.Clock();
   private viewW = 1;
@@ -155,41 +152,41 @@ export class FaceTryOn {
     const fw = dist(earR, earL) || 1;
     const down = normalize2(chin.x - fore.x, chin.y - fore.y);
 
-    // Head orientation from the facial transformation matrix (smoothed).
-    if (frame.matrix && frame.matrix.length === 16) {
-      this.tmpM.fromArray(frame.matrix);
-      this.frameQ.setFromRotationMatrix(this.tmpM);
-    } else {
-      this.frameQ.identity();
-    }
-    this.smoothQ.slerp(this.frameQ, 0.5);
+    // Pieces are kept gravity-aligned (frontal/identity orientation): the
+    // necklace lies flat on the chest and the earrings dangle straight down —
+    // which is both more realistic and what fixes them sitting above/behind the
+    // ear. The head-pose matrix is still produced by the controller for future
+    // refinement (subtle head-roll tilt) but is intentionally not applied here.
 
     this.occluders.group.visible = true;
 
-    // ---- Necklace ----
+    // ---- Necklace: drapes on the chest, scaled to ~shoulder width ----
     this.necklace.group.visible = this.showNecklace;
     if (this.showNecklace) {
-      const nx = chin.x + down.x * fw * 0.5;
-      const ny = chin.y + down.y * fw * 0.5;
-      this.necklace.group.position.set(nx, ny, BASE_Z);
-      this.necklace.group.quaternion.copy(this.smoothQ);
-      this.necklace.group.scale.setScalar(fw * 0.55);
-      // Neck/jaw occluder: hides the back arc of the chain.
-      this.occluders.neck.position.set(nx, ny - fw * 0.1, BASE_Z);
-      this.occluders.neck.scale.set(fw * 0.4, fw * 1.3, fw * 0.25);
+      // Anchor the top of the drape below the jaw, on the upper chest.
+      const nx = chin.x + down.x * fw * 0.95;
+      const ny = chin.y + down.y * fw * 0.95;
+      this.necklace.group.position.set(nx, ny, BASE_Z + fw * 0.05);
+      this.necklace.group.quaternion.identity();
+      this.necklace.group.scale.setScalar(fw * 1.0);
+      // Neck/jaw occluder sits higher (at the actual neck, above the drape) so
+      // it can hide anything passing behind the neck without covering the chain.
+      this.occluders.neck.position.set(chin.x + down.x * fw * 0.3, chin.y + down.y * fw * 0.3, BASE_Z);
+      this.occluders.neck.scale.set(fw * 0.4, fw * 1.2, fw * 0.28);
     }
 
-    // ---- Earrings ----
+    // ---- Earrings: dangle from the earlobe ----
     this.earringR.group.visible = this.showEarrings;
     this.earringL.group.visible = this.showEarrings;
     if (this.showEarrings) {
       this.placeEarring(this.earringR, earR, lm[FACE.earR], down, fw);
       this.placeEarring(this.earringL, earL, lm[FACE.earL], down, fw);
-      // Head occluder: hides the far earring when the head is turned.
-      const hx = (earR.x + earL.x) / 2 - down.x * fw * 0.1;
-      const hy = (earR.y + earL.y) / 2 - down.y * fw * 0.1;
+      // Head occluder (slightly taller, reaching the lobes) hides the far
+      // earring when the head is turned.
+      const hx = (earR.x + earL.x) / 2 - down.x * fw * 0.05;
+      const hy = (earR.y + earL.y) / 2 - down.y * fw * 0.05;
       this.occluders.head.position.set(hx, hy, BASE_Z);
-      this.occluders.head.scale.set(fw * 0.55, fw * 0.7, fw * 0.5);
+      this.occluders.head.scale.set(fw * 0.58, fw * 0.85, fw * 0.55);
     }
 
     this.render();
@@ -203,14 +200,19 @@ export class FaceTryOn {
     down: { x: number; y: number },
     fw: number,
   ): void {
-    const lobeX = earScreen.x + down.x * fw * 0.14;
-    const lobeY = earScreen.y + down.y * fw * 0.14;
-    // MediaPipe z is negative toward the camera, so the nearer ear gets pushed
+    // Drop to the earlobe (below the ear landmark) and seat the earring's hook
+    // there so the decorative drop hangs BELOW the lobe.
+    const lobeX = earScreen.x + down.x * fw * 0.22;
+    const lobeY = earScreen.y + down.y * fw * 0.22;
+    const scale = fw * 0.22; // smaller than before
+    // MediaPipe z is negative toward the camera, so the nearer ear is pushed
     // forward (+Z, in front of the head occluder) and the far ear behind it.
     const zoff = -earLm.z * fw * EAR_DEPTH_GAIN;
-    piece.group.position.set(lobeX, lobeY - fw * 0.1, BASE_Z + fw * EAR_BASE_Z + zoff);
-    piece.group.quaternion.copy(this.smoothQ);
-    piece.group.scale.setScalar(fw * 0.32);
+    // The earring model's hook is at local y≈0.9; offset down so the hook lands
+    // on the lobe and the drop dangles beneath it.
+    piece.group.position.set(lobeX, lobeY - 0.9 * scale, BASE_Z + fw * EAR_BASE_Z + zoff);
+    piece.group.quaternion.identity();
+    piece.group.scale.setScalar(scale);
   }
 
   private render(): void {

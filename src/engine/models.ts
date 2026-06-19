@@ -197,48 +197,51 @@ function buildEarring(): BuiltPiece {
 }
 
 /**
- * A necklace for the face try-on (Phase 2): a chain that loops around the neck
- * (a horizontal ellipse — front toward +Z/camera, back toward -Z) with a halo
- * pendant draping at the front. Modelled with real depth so the neck occluder
- * can hide the back arc → a "worn" look.
+ * A necklace for the face try-on (Phase 2): a chain that DRAPES across the
+ * chest. Modelled as a U-shaped curve in the frontal (XY) plane — the ends rise
+ * toward the collarbones/shoulders and the chain hangs down to a low point at
+ * the chest centre, where a halo pendant dangles. It sits slightly forward (+Z)
+ * so it reads as resting on the chest, not a rigid ring around the neck.
  *
- * Local space: centred on the neck, +Y up, +Z toward the camera, ~1 unit ≈ the
- * neck half-width. The try-on scales/positions/orients the whole group.
+ * Local space: +Y up, +Z toward the camera, X≈±1 ≈ half the necklace span; the
+ * origin sits near the top (collarbone line). The try-on scales it to shoulder
+ * width and anchors the origin below the jaw on the upper chest.
  */
 export function buildNecklace(): BuiltPiece {
   const group = new THREE.Group();
   const metal: THREE.Mesh[] = [];
   const gems: THREE.Mesh[] = [];
 
-  const rx = 0.95; // left-right radius
-  const rz = 0.62; // front-back radius (depth)
-
-  // Chain: a thin torus laid flat into the XZ plane, squashed into an ellipse.
-  const chain = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.03, 18, 200));
-  chain.rotation.x = Math.PI / 2;
-  chain.scale.set(rx, rz, 1); // after the x-rotation this stretches X and Z
+  // Draping chain: a quadratic curve from the left collarbone, down across the
+  // chest, up to the right collarbone (the control point pulls it down).
+  const left = new THREE.Vector3(-1.0, 0.28, 0.0);
+  const ctrl = new THREE.Vector3(0.0, -1.7, 0.18);
+  const right = new THREE.Vector3(1.0, 0.28, 0.0);
+  const curve = new THREE.QuadraticBezierCurve3(left, ctrl, right);
+  const chain = new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.028, 12, false));
   metal.push(chain);
 
-  // Pendant hanging from the front-most point of the chain (toward the camera).
-  const frontY = -0.05;
-  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.022, 16, 48));
-  bail.position.set(0, frontY, rz);
+  // Pendant dangling from the lowest point of the drape (chest centre).
+  const low = curve.getPoint(0.5); // ≈ (0, -0.71, 0.09)
+  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.02, 16, 48));
+  bail.position.set(low.x, low.y - 0.05, low.z + 0.02);
   metal.push(bail);
 
-  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.035, 24, 96));
-  halo.position.set(0, frontY - 0.34, rz);
+  const haloY = low.y - 0.34;
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.03, 24, 90));
+  halo.position.set(0, haloY, low.z + 0.04);
   metal.push(halo);
 
-  const centre = gem(0.42, 'hi', gems);
+  const centre = gem(0.36, 'hi', gems);
   centre.rotation.x = Math.PI / 2; // table faces the camera (+Z)
-  centre.position.set(0, frontY - 0.34, rz + 0.03);
+  centre.position.set(0, haloY, low.z + 0.07);
 
   const n = 12;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    const small = gem(0.085, 'lo', gems);
+    const small = gem(0.075, 'lo', gems);
     small.rotation.x = Math.PI / 2;
-    small.position.set(Math.cos(a) * 0.26, frontY - 0.34 + Math.sin(a) * 0.26, rz + 0.05);
+    small.position.set(Math.cos(a) * 0.22, haloY + Math.sin(a) * 0.22, low.z + 0.05);
     group.add(small);
   }
 
