@@ -20,10 +20,7 @@ import {
 } from './mapping';
 import {
   earringAnchor,
-  earringFrontOpacity,
   earringOffset,
-  earTurnBlend,
-  headYaw,
   HEAD_OCC,
   necklaceAnchor,
   type AnchorIndices,
@@ -47,8 +44,8 @@ import { type FaceFrame } from './faceLandmarker';
  *  - EARRINGS → ear/cheek landmark (right 234, left 454) + an offset that BLENDS
  *    by head yaw: front-on a small outward + down offset beside the ear (no ear
  *    landmark exists head-on); turned it uses the matrix-rotated head-local ear
- *    anchor. Opacity dips to ~0.6 front-on. Stones are opaque pearl-white.
- *    Occlusion (inter-ear depth) hides the far earring on a turn.
+ *    anchor. Stones are fully opaque pearl-white. Occlusion (inter-ear depth)
+ *    hides the far earring on a turn.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
@@ -66,7 +63,6 @@ export class FaceTryOn {
   private readonly necklace: BuiltPiece;
   private readonly earringR: BuiltPiece;
   private readonly earringL: BuiltPiece;
-  private readonly earringMats: THREE.Material[] = []; // faded front-on
   private readonly occluders: FaceOccluders;
 
   private showNecklace = true;
@@ -119,22 +115,22 @@ export class FaceTryOn {
     };
     const necklaceMetal = makeMetalMaterial('yellow');
     const necklaceGem = diamond();
-    // Earrings get their OWN materials, marked transparent, so they can be faded
-    // (opacity dips front-on to mask any small anchor error) without touching the
-    // necklace. Their stones are a SOLID opaque white pearl (bright diffuse white
-    // + soft specular) rather than transmissive glass, so they read clearly
-    // against skin and plain walls, not just busy backgrounds.
-    const earringMetal = makeMetalMaterial('yellow');
-    earringMetal.transparent = true;
-    const earringGem = new THREE.MeshStandardMaterial({
-      color: 0xf7f5ef, // bright pearl white
+    // Earrings get their OWN materials so changing them never touches the
+    // necklace. The stones are a FULLY OPAQUE glossy pearl-white cabochon (no
+    // transmission, no transparency) so they cover whatever is behind them and
+    // read solid against skin AND a plain white wall.
+    const earringMetal = makeMetalMaterial('yellow'); // opaque
+    const earringGem = new THREE.MeshPhysicalMaterial({
+      color: 0xf5f5f0, // bright pearl white
       metalness: 0.0,
-      roughness: 0.34, // soft, satiny specular highlight
-      envMapIntensity: 1.1,
-      emissive: new THREE.Color(0x1a1a1a), // tiny lift so it never disappears on dark
-      transparent: true,
+      roughness: 0.18, // low roughness → crisp glossy highlight
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.12,
+      envMapIntensity: 1.0,
+      transmission: 0, // solid, not glass
+      transparent: false,
+      opacity: 1,
     });
-    this.earringMats.push(earringMetal, earringGem);
 
     const assign = (
       piece: BuiltPiece,
@@ -235,9 +231,6 @@ export class FaceTryOn {
       const dz = avgZ(lm, EAR_R) - avgZ(lm, EAR_L);
       this.applyEarring(this.earringR, earringAnchor(lobeR, +dz, fw));
       this.applyEarring(this.earringL, earringAnchor(lobeL, -dz, fw));
-      // Fade opacity front-on (mask any small front-facing anchor error).
-      const opacity = earringFrontOpacity(earTurnBlend(Math.abs(headYaw(frame.matrix))));
-      for (const m of this.earringMats) m.opacity = opacity;
       // Head occluder centred on the ear line so it reaches both lobes.
       this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2, 0);
       this.occluders.head.scale.set(fw * HEAD_OCC.rx, fw * HEAD_OCC.ry, fw * HEAD_OCC.rz);
