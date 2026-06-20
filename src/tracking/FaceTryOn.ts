@@ -8,7 +8,23 @@ import {
   type BuiltPiece,
 } from '../engine';
 import { createFaceOccluders, type FaceOccluders } from '../occlusion/faceOccluders';
-import { dist, FACE, makeCoverMapper, POSE, type Landmark, type Vec2 } from './mapping';
+import {
+  avgScreen,
+  avgZ,
+  dist,
+  EAR_L,
+  EAR_R,
+  FACE,
+  makeCoverMapper,
+  POSE,
+} from './mapping';
+import {
+  earringAnchor,
+  HEAD_OCC,
+  necklaceAnchor,
+  type AnchorIndices,
+  type EarringAnchor,
+} from './anchors';
 import { type FaceFrame } from './faceLandmarker';
 
 /**
@@ -19,25 +35,21 @@ import { type FaceFrame } from './faceLandmarker';
  * pixels; the page CSS-mirrors both the video and this canvas together for the
  * selfie look (see mapping.ts).
  *
- * Anchoring (designed so head turns don't break it):
- *  - NECKLACE → the BODY. PoseLandmarker shoulders (11 left / 12 right): the
- *    chain spans shoulder-to-shoulder and the pendant rests on the upper chest.
- *    Kept strictly UPRIGHT (identity) and decoupled from head yaw/pitch/roll.
- *    Pose is validated (shoulders below the chin, sane span) and clamped, with a
- *    face-based fallback, so a bad detection can't fling it to the jaw.
- *  - EARRINGS → the face mesh. Each is pinned to its own ear (234 right /
- *    454 left), dropped straight down (screen-vertical) to the lobe. Occlusion
- *    uses the INTER-EAR depth difference (≈0 facing forward ⇒ both visible; the
- *    ear that turns away gets a large +Δ ⇒ pushed behind the head occluder and
- *    hidden). Using the difference — not absolute Z — is what keeps both
- *    earrings visible when facing forward.
+ * All anchoring maths lives in the pure, unit-tested `anchors.ts`:
+ *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12). Spans shoulder-to-
+ *    shoulder, pendant on the upper chest, kept strictly UPRIGHT and decoupled
+ *    from the head — so it does not swing when the head turns. Face-based
+ *    fallback when the shoulders aren't usable.
+ *  - EARRINGS → each ear's landmark cluster (right 234/227/137, left 454/447/
+ *    366), dropped to the lobe. Occlusion uses the inter-ear depth difference so
+ *    both are visible facing forward and the far one is hidden on a turn.
  */
 
-// Tunable anchoring constants (lengths are × face width `fw`).
-const EAR_FRONT_Z = 0.45; // earring Z facing forward — safely in front of the head occluder
-const EAR_DEPTH_GAIN = 4.5; // how strongly a head turn pushes the far earring back in Z
-const EAR_SCALE = 0.16; // earring size
-const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head occluder ellipsoid radii (× fw)
+const ANCHOR_IDX: AnchorIndices = {
+  leftShoulder: POSE.leftShoulder,
+  rightShoulder: POSE.rightShoulder,
+  chin: FACE.chin,
+};
 
 export class FaceTryOn {
   readonly renderer: THREE.WebGLRenderer;
@@ -152,17 +164,19 @@ export class FaceTryOn {
     }
 
     const P = makeCoverMapper(this.video.videoWidth, this.video.videoHeight, this.viewW, this.viewH);
-    const earR = P(lm[FACE.earR]);
-    const earL = P(lm[FACE.earL]);
+    // Stable per-ear anchors from landmark clusters (on the ear, not the jaw).
+    const earR = avgScreen(lm, P, EAR_R);
+    const earL = avgScreen(lm, P, EAR_L);
     const chin = P(lm[FACE.chin]);
     const fw = dist(earR, earL) || 1;
+    const earMidX = (earR.x + earL.x) / 2;
 
     this.occluders.group.visible = true;
 
     // ---- Necklace: anchored to the BODY (shoulders), kept upright ----
     this.necklace.group.visible = this.showNecklace;
     if (this.showNecklace) {
-      const a = this.necklaceAnchor(frame, P, lm, fw);
+      const a = necklaceAnchor(frame.pose, P, ANCHOR_IDX, fw, earMidX, chin, lm[FACE.chin].y);
       this.necklace.group.position.set(a.x, a.y, a.z);
       this.necklace.group.quaternion.identity(); // UPRIGHT — ignores head pose
       this.necklace.group.scale.setScalar(a.scale);
@@ -177,13 +191,11 @@ export class FaceTryOn {
     this.earringL.group.visible = this.showEarrings;
     if (this.showEarrings) {
       // Inter-ear depth difference: ~0 facing forward, large for the far ear.
-      const dz = lm[FACE.earR].z - lm[FACE.earL].z;
-      this.placeEarring(this.earringR, earR, +dz, fw, +1);
-      this.placeEarring(this.earringL, earL, -dz, fw, -1);
+      const dz = avgZ(lm, EAR_R) - avgZ(lm, EAR_L);
+      this.applyEarring(this.earringR, earringAnchor(earR, +dz, fw, +1));
+      this.applyEarring(this.earringL, earringAnchor(earL, -dz, fw, -1));
       // Head occluder centred on the ear line so it reaches both lobes.
-      const hx = (earR.x + earL.x) / 2;
-      const hy = (earR.y + earL.y) / 2;
-      this.occluders.head.position.set(hx, hy, 0);
+      this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2, 0);
       this.occluders.head.scale.set(fw * HEAD_OCC.rx, fw * HEAD_OCC.ry, fw * HEAD_OCC.rz);
     }
 
@@ -191,73 +203,10 @@ export class FaceTryOn {
     return true;
   }
 
-  /**
-   * Necklace anchor + scale. Prefers PoseLandmarker shoulders (11/12) so the
-   * chain spans shoulder-to-shoulder on the BODY (stable when the head turns).
-   * The pose is accepted only if both shoulders are clearly below the chin with
-   * a plausible span; otherwise it falls back to a face-based upright anchor.
-   */
-  private necklaceAnchor(
-    frame: FaceFrame,
-    P: (l: Landmark) => Vec2,
-    lm: Landmark[],
-    fw: number,
-  ): { x: number; y: number; z: number; scale: number } {
-    const lS = frame.pose?.[POSE.leftShoulder];
-    const rS = frame.pose?.[POSE.rightShoulder];
-    const chinNormY = lm[FACE.chin].y; // normalised (y-down)
-    const shouldersValid =
-      !!lS &&
-      !!rS &&
-      (lS.visibility ?? 1) > 0.5 &&
-      (rS.visibility ?? 1) > 0.5 &&
-      // Shoulders must sit clearly below the chin in the image (y-down).
-      lS.y > chinNormY + 0.06 &&
-      rS.y > chinNormY + 0.06;
-
-    if (shouldersValid) {
-      const a = P(lS!);
-      const b = P(rS!);
-      const span = dist(a, b);
-      // Reject implausible spans (mis-detection); face width is ~ear-to-ear.
-      if (span > fw * 1.1 && span < fw * 4.5) {
-        const midX = (a.x + b.x) / 2;
-        const midY = (a.y + b.y) / 2;
-        // Lift toward the neck base so the chain rests on the upper chest.
-        // Model endpoints are at X=±1 → scale = span/2 lands them on the shoulders.
-        return { x: midX, y: midY + span * 0.08, z: 0, scale: span * 0.5 };
-      }
-    }
-
-    // Fallback: face-based, straight DOWN from the chin (screen-vertical → stays
-    // upright, doesn't swing with head roll/pitch).
-    const chin = P(lm[FACE.chin]);
-    return { x: chin.x, y: chin.y - fw * 0.6, z: 0, scale: fw * 0.95 };
-  }
-
-  /**
-   * Pin an earring to one ear and drop it straight DOWN (screen-vertical) to the
-   * lobe. `relDepth` is this ear's MediaPipe Z minus the other ear's: ≈0 facing
-   * forward (earring in front, visible), large+ when this ear turns away
-   * (earring pushed behind the head occluder, hidden). `side` is +1 for the
-   * person's right ear, -1 for the left (small outward nudge onto the ear edge).
-   */
-  private placeEarring(
-    piece: BuiltPiece,
-    ear: Vec2,
-    relDepth: number,
-    fw: number,
-    side: number,
-  ): void {
-    const scale = fw * EAR_SCALE;
-    const x = ear.x + side * fw * 0.04;
-    const lobeY = ear.y - fw * 0.16; // straight down to the lobe (screen-vertical)
-    // Forward → EAR_FRONT_Z (in front of occluder); far ear (relDepth > 0) → back.
-    const z = fw * (EAR_FRONT_Z - relDepth * EAR_DEPTH_GAIN);
-    // Hook is at local y≈0.9; offset down so the hook sits on the lobe.
-    piece.group.position.set(x, lobeY - 0.9 * scale, z);
+  private applyEarring(piece: BuiltPiece, a: EarringAnchor): void {
+    piece.group.position.set(a.x, a.y, a.z);
     piece.group.quaternion.identity();
-    piece.group.scale.setScalar(scale);
+    piece.group.scale.setScalar(a.scale);
   }
 
   private render(): void {

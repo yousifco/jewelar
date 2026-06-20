@@ -75,8 +75,6 @@ export function smoothLandmarks(
 
 /**
  * Key MediaPipe FaceLandmarker indices used for anchoring (BUILD_SPEC §4).
- * earR/earL (234/454) are the ear-region silhouette points used as each ear's
- * anchor; the try-on drops straight down from them to the earlobe.
  */
 export const FACE = {
   earR: 234, // person's right ear region
@@ -86,8 +84,42 @@ export const FACE = {
   noseTip: 1,
 } as const;
 
+/**
+ * Ear-region landmark clusters on the canonical 468-point mesh, averaged for a
+ * stable per-ear anchor that sits ON the ear (not the jaw). These points cluster
+ * around the tragus/upper-lobe of each ear; the try-on drops a touch below their
+ * centroid to reach the lobe.
+ *   - Right ear: 234 (ear silhouette), 227, 137 (in front of / below the ear).
+ *   - Left ear:  454 (ear silhouette), 447, 366 (in front of / below the ear).
+ */
+export const EAR_R = [234, 227, 137] as const;
+export const EAR_L = [454, 447, 366] as const;
+
 /** MediaPipe PoseLandmarker (BlazePose) shoulder indices for the necklace. */
 export const POSE = {
   leftShoulder: 11,
   rightShoulder: 12,
 } as const;
+
+/** Average of mapped landmark positions over the given indices. */
+export function avgScreen(
+  lm: Landmark[],
+  P: (l: Landmark) => Vec2,
+  indices: readonly number[],
+): Vec2 {
+  let x = 0;
+  let y = 0;
+  for (const i of indices) {
+    const p = P(lm[i]);
+    x += p.x;
+    y += p.y;
+  }
+  return { x: x / indices.length, y: y / indices.length };
+}
+
+/** Average of the raw (normalised) Z over the given indices. */
+export function avgZ(lm: Landmark[], indices: readonly number[]): number {
+  let z = 0;
+  for (const i of indices) z += lm[i].z;
+  return z / indices.length;
+}

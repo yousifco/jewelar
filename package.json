@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts",
+    "test": "vitest run",
     "format": "prettier --write \"src/**/*.{ts,css}\" \"*.{html,md,json}\""
   },
   "dependencies": {
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
+    "vitest": "^1.6.1",
     "@types/three": "^0.160.0",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
