@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { EAR_L, EAR_R, makeCoverMapper, type Landmark, type Vec2 } from './mapping';
 import {
   earringAnchor,
-  earringVisible,
+  earringOpacity,
+  EAR_FADE_HI,
+  EAR_FADE_LO,
   necklaceAnchor,
-  occluderFrontZ,
   type AnchorIndices,
 } from './anchors';
 
@@ -14,8 +15,8 @@ import {
  * invariants — without needing a camera:
  *   - the necklace is driven by the shoulders and does NOT move when only the
  *     head turns;
- *   - each earring stays on its ear, and the FAR ear's earring is occluded when
- *     the head turns away, while facing forward both earrings are visible.
+ *   - each earring sits on its ear facing forward, hangs below the lobe, and
+ *     fades out once the head yaw passes the threshold.
  */
 
 const VIEW_W = 600;
@@ -64,19 +65,16 @@ function facePose(opts: {
   return lmArray(set);
 }
 
-// Helper mirroring FaceTryOn: ear centroids, fw, relDepth, anchors.
+// Helper mirroring FaceTryOn: ear centroids, fw, anchors.
 function compute(face: Landmark[], pose: Landmark[] | null) {
   const earR = avg(face, EAR_R);
   const earL = avg(face, EAR_L);
-  const earRZ = avgZ(face, EAR_R);
-  const earLZ = avgZ(face, EAR_L);
   const fw = Math.hypot(earR.x - earL.x, earR.y - earL.y) || 1;
   const earMidX = (earR.x + earL.x) / 2;
   const chin = P(face[152]);
   const neck = necklaceAnchor(pose, P, IDX, fw, earMidX, chin, face[152].y);
-  const dz = earRZ - earLZ;
-  const eR = earringAnchor(earR, +dz, fw, +1);
-  const eL = earringAnchor(earL, -dz, fw, -1);
+  const eR = earringAnchor(earR, fw, +1);
+  const eL = earringAnchor(earL, fw, -1);
   return { fw, earR, earL, earMidX, neck, eR, eL };
 }
 function avg(face: Landmark[], ids: readonly number[]): Vec2 {
@@ -88,9 +86,6 @@ function avg(face: Landmark[], ids: readonly number[]): Vec2 {
     y += p.y;
   }
   return { x: x / ids.length, y: y / ids.length };
-}
-function avgZ(face: Landmark[], ids: readonly number[]): number {
-  return ids.reduce((s, i) => s + face[i].z, 0) / ids.length;
 }
 
 const FORWARD = facePose({
@@ -172,32 +167,11 @@ describe('necklace is body-driven and upright', () => {
   });
 });
 
-describe('earrings stay on the ears with correct occlusion', () => {
-  it('forward: both earrings near their ear X and BOTH visible', () => {
+describe('earrings sit on the ears and hang from the lobe', () => {
+  it('each earring is at its ear X (within the small outward nudge)', () => {
     const c = compute(FORWARD, SHOULDERS());
-    // Each earring sits at its ear (within the small outward nudge).
     expect(Math.abs(c.eR.x - c.earR.x)).toBeLessThan(c.fw * 0.1);
     expect(Math.abs(c.eL.x - c.earL.x)).toBeLessThan(c.fw * 0.1);
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('turn right: far (right) earring hidden, near (left) visible', () => {
-    const c = compute(TURN_RIGHT, SHOULDERS());
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(false);
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('turn left: far (left) earring hidden, near (right) visible', () => {
-    const c = compute(TURN_LEFT, SHOULDERS());
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(false);
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('look down: both earrings visible (symmetric depth)', () => {
-    const c = compute(LOOK_DOWN, SHOULDERS());
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
   });
 
   it('earrings hang BELOW the lobe (drop dangles down)', () => {
@@ -206,12 +180,33 @@ describe('earrings stay on the ears with correct occlusion', () => {
     expect(c.eR.y).toBeLessThan(c.earR.y);
     expect(c.eL.y).toBeLessThan(c.earL.y);
   });
+
+  it('earrings are placed in front (positive Z)', () => {
+    const c = compute(FORWARD, SHOULDERS());
+    expect(c.eR.z).toBeGreaterThan(0);
+    expect(c.eL.z).toBeGreaterThan(0);
+  });
 });
 
-describe('occluder geometry sanity', () => {
-  it('front surface is largest at head centre, vanishes past the rim', () => {
-    const fw = 100;
-    expect(occluderFrontZ(0, 0, fw)).toBeGreaterThan(occluderFrontZ(40, 0, fw));
-    expect(occluderFrontZ(1000, 0, fw)).toBe(-Infinity);
+describe('earrings fade out as the head turns', () => {
+  it('fully visible facing forward, fully hidden past the threshold', () => {
+    expect(earringOpacity(0)).toBe(1);
+    expect(earringOpacity(EAR_FADE_LO - 0.01)).toBe(1);
+    expect(earringOpacity(EAR_FADE_HI + 0.01)).toBe(0);
+  });
+
+  it('fades monotonically through the transition band', () => {
+    const mid = (EAR_FADE_LO + EAR_FADE_HI) / 2;
+    const o = earringOpacity(mid);
+    expect(o).toBeGreaterThan(0);
+    expect(o).toBeLessThan(1);
+    // Larger yaw → lower opacity.
+    expect(earringOpacity(mid + 0.02)).toBeLessThan(o);
+  });
+
+  it('the ~25° threshold falls inside the fade band', () => {
+    const deg25 = (25 * Math.PI) / 180;
+    expect(deg25).toBeGreaterThanOrEqual(EAR_FADE_LO);
+    expect(deg25).toBeLessThanOrEqual(EAR_FADE_HI);
   });
 });
