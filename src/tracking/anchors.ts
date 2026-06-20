@@ -12,10 +12,16 @@ import { dist, type Landmark, type Vec2 } from './mapping';
 // ---- Tunables ----
 export const EAR_FRONT_Z = 0.45; // earring Z facing forward — in front of the head occluder
 export const EAR_DEPTH_GAIN = 4.5; // how hard a head turn pushes the far earring back in Z
-export const EAR_SCALE = 0.16; // earring size (× fw)
-export const EAR_LOBE_DROP = 0.05; // drop below the ear-cluster centroid to the lobe (× fw)
-export const EAR_OUT_NUDGE = 0.04; // outward nudge onto the ear edge (× fw)
+export const EAR_SCALE = 0.14; // earring size (× fw)
+export const EAR_LOBE_DROP = 0.03; // small drop below the ear centroid to the lobe (× fw)
+export const EAR_OUT_NUDGE = 0.05; // outward nudge onto the ear edge (× fw)
 export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
+
+// Necklace, relative to the shoulder span: width ≈ 60% of shoulder distance so
+// it rings the neck/collarbone (not the shoulder tips), raised toward the neck
+// base so the pendant rests on the UPPER chest.
+const NECK_WIDTH_FRAC = 0.6; // chain width ÷ shoulder span (model spans X=±1)
+const NECK_RAISE_FRAC = 0.12; // raise above shoulder midpoint, × span (toward the neck)
 
 export interface NecklaceAnchor {
   x: number;
@@ -69,15 +75,22 @@ export function necklaceAnchor(
     if (span > fw * 1.1 && span < fw * 4.5) {
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
-      // Raise toward the neck base (a fixed fraction of the span, NOT the chin —
-      // so head pitch/look-down doesn't move it). Model endpoints are at X=±1 ⇒
-      // scale = span/2 lands them at the shoulders.
-      return { x: midX, y: midY + span * 0.18, z: 0, scale: span * 0.5, source: 'pose' };
+      // Raise toward the neck base by a fixed fraction of the span (NOT the chin,
+      // so head pitch/look-down doesn't move it). Width is ~60% of the shoulder
+      // span: model endpoints at X=±1 ⇒ scale = (WIDTH_FRAC·span)/2.
+      return {
+        x: midX,
+        y: midY + span * NECK_RAISE_FRAC,
+        z: 0,
+        scale: (span * NECK_WIDTH_FRAC) / 2,
+        source: 'pose',
+      };
     }
   }
 
-  // Fallback (shoulders not usable): face-based, upright, ear-midpoint X.
-  return { x: earMidX, y: chin.y - fw * 0.55, z: 0, scale: fw * 0.95, source: 'face' };
+  // Fallback (shoulders not usable): face-based, upright, ear-midpoint X. Width
+  // ~ face width so it still rings the neck rather than the shoulders.
+  return { x: earMidX, y: chin.y - fw * 0.5, z: 0, scale: fw * 0.55, source: 'face' };
 }
 
 export interface EarringAnchor {

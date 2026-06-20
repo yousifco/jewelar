@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeCoverMapper, type Landmark, type Vec2 } from './mapping';
+import { EAR_L, EAR_R, makeCoverMapper, type Landmark, type Vec2 } from './mapping';
 import {
   earringAnchor,
   earringVisible,
@@ -46,8 +46,9 @@ function poseArray(left: Partial<Landmark>, right: Partial<Landmark>): Landmark[
 // move when the head turns). Left shoulder is on the person's left.
 const SHOULDERS = () => poseArray({ x: 0.74, y: 0.95 }, { x: 0.26, y: 0.95 });
 
-// Face landmarks per pose. Only the indices the anchoring reads are set:
-// chin (152) and the ear clusters (right: 234/227/137, left: 454/447/366).
+// Face landmarks per pose. Set chin (152) and every index in each ear cluster
+// (EAR_R / EAR_L) to that ear's position, so the test follows the real cluster
+// definition rather than hard-coding indices.
 function facePose(opts: {
   earRX: number;
   earLX: number;
@@ -57,23 +58,18 @@ function facePose(opts: {
   chinY: number;
 }): Landmark[] {
   const { earRX, earLX, earY, earRZ, earLZ, chinY } = opts;
-  return lmArray({
-    152: { x: 0.5, y: chinY },
-    234: { x: earRX, y: earY, z: earRZ },
-    227: { x: earRX, y: earY - 0.02, z: earRZ },
-    137: { x: earRX + 0.01, y: earY + 0.02, z: earRZ },
-    454: { x: earLX, y: earY, z: earLZ },
-    447: { x: earLX, y: earY - 0.02, z: earLZ },
-    366: { x: earLX - 0.01, y: earY + 0.02, z: earLZ },
-  });
+  const set: Record<number, Partial<Landmark>> = { 152: { x: 0.5, y: chinY } };
+  for (const i of EAR_R) set[i] = { x: earRX, y: earY, z: earRZ };
+  for (const i of EAR_L) set[i] = { x: earLX, y: earY, z: earLZ };
+  return lmArray(set);
 }
 
 // Helper mirroring FaceTryOn: ear centroids, fw, relDepth, anchors.
 function compute(face: Landmark[], pose: Landmark[] | null) {
-  const earR = avg(face, [234, 227, 137]);
-  const earL = avg(face, [454, 447, 366]);
-  const earRZ = avgZ(face, [234, 227, 137]);
-  const earLZ = avgZ(face, [454, 447, 366]);
+  const earR = avg(face, EAR_R);
+  const earL = avg(face, EAR_L);
+  const earRZ = avgZ(face, EAR_R);
+  const earLZ = avgZ(face, EAR_L);
   const fw = Math.hypot(earR.x - earL.x, earR.y - earL.y) || 1;
   const earMidX = (earR.x + earL.x) / 2;
   const chin = P(face[152]);
@@ -83,7 +79,7 @@ function compute(face: Landmark[], pose: Landmark[] | null) {
   const eL = earringAnchor(earL, -dz, fw, -1);
   return { fw, earR, earL, earMidX, neck, eR, eL };
 }
-function avg(face: Landmark[], ids: number[]): Vec2 {
+function avg(face: Landmark[], ids: readonly number[]): Vec2 {
   let x = 0;
   let y = 0;
   for (const i of ids) {
@@ -93,7 +89,7 @@ function avg(face: Landmark[], ids: number[]): Vec2 {
   }
   return { x: x / ids.length, y: y / ids.length };
 }
-function avgZ(face: Landmark[], ids: number[]): number {
+function avgZ(face: Landmark[], ids: readonly number[]): number {
   return ids.reduce((s, i) => s + face[i].z, 0) / ids.length;
 }
 
@@ -154,6 +150,18 @@ describe('necklace is body-driven and upright', () => {
     const down = compute(LOOK_DOWN, SHOULDERS()).neck;
     expect(down.x).toBeCloseTo(fwd.x, 6);
     expect(down.y).toBeCloseTo(fwd.y, 6);
+  });
+
+  it('width is ~60% of the shoulder span (rings the neck, not the shoulders)', () => {
+    const pose = SHOULDERS();
+    const a = P(pose[11]);
+    const b = P(pose[12]);
+    const span = Math.hypot(a.x - b.x, a.y - b.y);
+    const neck = compute(FORWARD, pose).neck;
+    // Chain width = 2·scale; expect ≈ 0.6·span (within 55–65%).
+    const width = 2 * neck.scale;
+    expect(width / span).toBeGreaterThan(0.55);
+    expect(width / span).toBeLessThan(0.65);
   });
 
   it('falls back to a face anchor when shoulders are missing/above the chin', () => {
