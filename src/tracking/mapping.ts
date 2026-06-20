@@ -14,6 +14,8 @@ export interface Landmark {
   x: number;
   y: number;
   z: number;
+  /** Pose landmarks carry a visibility score (0..1); face landmarks don't. */
+  visibility?: number;
 }
 
 export interface Vec2 {
@@ -67,24 +69,25 @@ export function smoothLandmarks(
     x: lerp(prev[i].x, p.x, factor),
     y: lerp(prev[i].y, p.y, factor),
     z: lerp(prev[i].z, p.z, factor),
+    visibility: p.visibility,
   }));
 }
 
-/** Key MediaPipe FaceLandmarker indices used for anchoring (BUILD_SPEC §4). */
+/**
+ * Key MediaPipe FaceLandmarker indices used for anchoring (BUILD_SPEC §4).
+ * earR/earL (234/454) are the ear-region silhouette points used as each ear's
+ * anchor; the try-on drops straight down from them to the earlobe.
+ */
 export const FACE = {
-  earR: 234,
-  earL: 454,
+  earR: 234, // person's right ear region
+  earL: 454, // person's left ear region
   chin: 152,
   forehead: 10,
   noseTip: 1,
 } as const;
 
-/**
- * Lower face-oval landmarks at earlobe height, per ear. The face mesh has no
- * true ear vertices, but these silhouette points sit at the jaw-angle / lobe
- * region and track the head as it turns — far better lobe anchors than the
- * temple-level 234/454. (Verified against the canonical 468-point mesh: these
- * are the contour points just below/in front of each ear.)
- */
-export const EAR_LOBE_A = [132, 93, 58] as const; // person's right side
-export const EAR_LOBE_B = [361, 323, 288] as const; // person's left side
+/** MediaPipe PoseLandmarker (BlazePose) shoulder indices for the necklace. */
+export const POSE = {
+  leftShoulder: 11,
+  rightShoulder: 12,
+} as const;
