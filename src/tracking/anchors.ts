@@ -22,10 +22,10 @@ export const EAR_BACK = 0.13; // head-local back (−Z, behind the cheek toward 
 export const EAR_OUT = 0.05; // head-local outward (toward the ear side)
 export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
 
-// Front-facing anchor (no ear landmark exists head-on): push OUTWARD from the
-// face centre past the face-oval edge, and down to jaw/lobe level — so the
-// earring hangs just outside the face edge at ear height, not on the cheek.
-export const EAR_FRONT_OUT = 0.15; // outward past the face edge (× fw)
+// Front-facing anchor (no ear landmark exists head-on): push a little OUTWARD
+// from the face centre and down to jaw/lobe level — so the earring sits just
+// beside/below the ear, close to it, not out in empty space.
+export const EAR_FRONT_OUT = 0.05; // outward beside the ear (× fw)
 export const EAR_FRONT_DOWN = 0.12; // down to jaw/lobe level (× fw)
 export const EAR_FRONT_OPACITY = 0.6; // earring opacity when fully front-on
 // Blend window between the front-facing anchor (yaw ≤ LO) and the ear-anchored

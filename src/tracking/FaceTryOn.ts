@@ -45,10 +45,10 @@ import { type FaceFrame } from './faceLandmarker';
  *    from the head — so it does not swing when the head turns. Face-based
  *    fallback when the shoulders aren't usable.
  *  - EARRINGS → ear/cheek landmark (right 234, left 454) + an offset that BLENDS
- *    by head yaw: front-on it pushes OUTWARD past the face edge + down (no ear
+ *    by head yaw: front-on a small outward + down offset beside the ear (no ear
  *    landmark exists head-on); turned it uses the matrix-rotated head-local ear
- *    anchor. Opacity dips to ~0.6 front-on. Occlusion (inter-ear depth) hides the
- *    far earring on a turn.
+ *    anchor. Opacity dips to ~0.6 front-on. Stones are opaque pearl-white.
+ *    Occlusion (inter-ear depth) hides the far earring on a turn.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
@@ -121,11 +121,19 @@ export class FaceTryOn {
     const necklaceGem = diamond();
     // Earrings get their OWN materials, marked transparent, so they can be faded
     // (opacity dips front-on to mask any small anchor error) without touching the
-    // necklace.
+    // necklace. Their stones are a SOLID opaque white pearl (bright diffuse white
+    // + soft specular) rather than transmissive glass, so they read clearly
+    // against skin and plain walls, not just busy backgrounds.
     const earringMetal = makeMetalMaterial('yellow');
     earringMetal.transparent = true;
-    const earringGem = diamond();
-    earringGem.transparent = true;
+    const earringGem = new THREE.MeshStandardMaterial({
+      color: 0xf7f5ef, // bright pearl white
+      metalness: 0.0,
+      roughness: 0.34, // soft, satiny specular highlight
+      envMapIntensity: 1.1,
+      emissive: new THREE.Color(0x1a1a1a), // tiny lift so it never disappears on dark
+      transparent: true,
+    });
     this.earringMats.push(earringMetal, earringGem);
 
     const assign = (
