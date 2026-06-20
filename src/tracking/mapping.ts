@@ -85,16 +85,16 @@ export const FACE = {
 } as const;
 
 /**
- * Per-ear anchor at the EARLOBE: the lowest points of each ear's face-oval
- * contour (near the jaw angle), averaged. These sit at lobe height — unlike the
- * upper/outer silhouette points (234/454) which land up at the cheek/temple.
- *   - Right ear lobe: 132 + 58 (lowest right-ear contour points).
- *   - Left ear lobe:  361 + 288 (lowest left-ear contour points).
- * Verified left/right against the canonical 468 mesh face-oval ordering: 132/58
- * are on the person's right, 361/288 on the left.
+ * Per-ear anchor at the ear/cheek boundary — the outermost face-oval point where
+ * the ear meets the face (right 234, left 454). The try-on then nudges outward
+ * (toward the ear) and slightly up so the hook lands on the earlobe. Lower
+ * contour points (132/58) overshoot onto the jaw; upper ones (127) ride up the
+ * cheek — 234/454 are the sweet spot.
+ * Verified left/right against the canonical 468 mesh: 234 = person's right,
+ * 454 = left.
  */
-export const EAR_R = [132, 58] as const;
-export const EAR_L = [361, 288] as const;
+export const EAR_R = [234] as const;
+export const EAR_L = [454] as const;
 
 /** MediaPipe PoseLandmarker (BlazePose) shoulder indices for the necklace. */
 export const POSE = {

@@ -13,8 +13,8 @@ import { dist, type Landmark, type Vec2 } from './mapping';
 export const EAR_FRONT_Z = 0.45; // earring Z facing forward — in front of the head occluder
 export const EAR_DEPTH_GAIN = 4.5; // how hard a head turn pushes the far earring back in Z
 export const EAR_SCALE = 0.14; // earring size (× fw)
-export const EAR_LOBE_DROP = 0.03; // small drop below the ear centroid to the lobe (× fw)
-export const EAR_OUT_NUDGE = 0.05; // outward nudge onto the ear edge (× fw)
+export const EAR_LOBE_RISE = 0.03; // lift the hook UP from the ear/cheek point to the lobe (× fw)
+export const EAR_OUT_NUDGE = 0.07; // nudge outward toward the ear (× fw)
 export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
 
 // Necklace, relative to the shoulder span: width ≈ 60% of shoulder distance so
@@ -117,10 +117,13 @@ export function earringAnchor(
   side: number,
 ): EarringAnchor {
   const scale = fw * EAR_SCALE;
+  // From the ear/cheek point, nudge OUTWARD (toward the ear) and slightly UP so
+  // the hook sits on the lobe (the model's hook is at local y≈0.9), with the
+  // drop hanging just below the ear.
   const x = earCentroid.x + side * fw * EAR_OUT_NUDGE;
-  const lobeY = earCentroid.y - fw * EAR_LOBE_DROP;
+  const hookY = earCentroid.y + fw * EAR_LOBE_RISE;
   const z = fw * (EAR_FRONT_Z - relDepth * EAR_DEPTH_GAIN);
-  return { x, y: lobeY - 0.9 * scale, z, scale };
+  return { x, y: hookY - 0.9 * scale, z, scale };
 }
 
 /**

@@ -40,10 +40,10 @@ import { type FaceFrame } from './faceLandmarker';
  *    shoulder, pendant on the upper chest, kept strictly UPRIGHT and decoupled
  *    from the head — so it does not swing when the head turns. Face-based
  *    fallback when the shoulders aren't usable.
- *  - EARRINGS → each ear's EARLOBE cluster (right 132/58, left 361/288), with
- *    the hook at the lobe and the drop hanging below. Occlusion uses the
- *    inter-ear depth difference so both are visible facing forward and the far
- *    one is hidden on a turn.
+ *  - EARRINGS → the ear/cheek boundary (right 234, left 454), nudged outward +
+ *    slightly up so the hook sits on the lobe and the drop hangs below the ear.
+ *    Occlusion uses the inter-ear depth difference so both are visible facing
+ *    forward and the far one is hidden on a turn.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
