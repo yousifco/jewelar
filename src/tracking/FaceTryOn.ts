@@ -96,13 +96,18 @@ export class FaceTryOn {
     this.flash = new THREE.PointLight(0xffffff, 1.2, 0, 0);
     this.scene.add(key, fill, this.flash);
 
-    // Shared materials for all AR pieces. Lower transmission than the orbit
-    // viewer so the gems stay bright over the transparent video (no scene
-    // behind them to refract).
+    // Real cut-diamond material for ALL AR stones (same brilliant-cut geometry
+    // as the orbit viewer). High transmission + ior 2.42 means you see THROUGH
+    // the table to the refracted pavilion facets — sparkle and facet contrast,
+    // not a flat white disc. Clearcoat adds crisp surface glints; the studio
+    // environment (bright panels over dark velvet) gives the facets light/dark
+    // contrast, and the travelling flash makes them twinkle as the head moves.
     const metal = makeMetalMaterial('yellow');
-    const gem = makeGemMaterial('diamond');
-    gem.transmission = 0.25;
-    gem.envMapIntensity = 1.6;
+    const gem = makeGemMaterial('diamond'); // transmission 0.85, ior 2.42, roughness 0
+    gem.clearcoat = 1.0;
+    gem.clearcoatRoughness = 0.0;
+    gem.thickness = 0.6; // small stones: keep them bright, not over-darkened
+    gem.envMapIntensity = 1.5;
 
     const assign = (piece: BuiltPiece): BuiltPiece => {
       for (const m of piece.metalMeshes) m.material = metal;
