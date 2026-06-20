@@ -10,15 +10,12 @@ import { dist, type Landmark, type Vec2 } from './mapping';
  */
 
 // ---- Tunables ----
-export const EAR_Z = 0.3; // earrings sit a fixed amount in front (always visible when shown)
+export const EAR_FRONT_Z = 0.45; // earring Z facing forward — in front of the head occluder
+export const EAR_DEPTH_GAIN = 4.5; // how hard a head turn pushes the far earring back in Z
 export const EAR_SCALE = 0.14; // earring size (× fw)
 export const EAR_LOBE_DROP = 0.03; // small drop below the ear centroid to the lobe (× fw)
 export const EAR_OUT_NUDGE = 0.05; // outward nudge onto the ear edge (× fw)
-// Earrings are fully shown below EAR_FADE_LO of head yaw and fully hidden above
-// EAR_FADE_HI, fading between — so they look right facing forward and vanish
-// (rather than drift) once the head turns past ~25°.
-export const EAR_FADE_LO = (22 * Math.PI) / 180;
-export const EAR_FADE_HI = (34 * Math.PI) / 180;
+export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
 
 // Necklace, relative to the shoulder span: width ≈ 60% of shoulder distance so
 // it rings the neck/collarbone (not the shoulder tips), raised toward the neck
@@ -105,27 +102,40 @@ export interface EarringAnchor {
 
 /**
  * Earring anchor. Pinned to the ear's cluster centroid, dropped straight DOWN
- * (screen-vertical) to the lobe, and placed a fixed amount in front (so it's
- * always cleanly visible while shown). `side` is +1 for the person's right ear,
- * -1 for the left (a small outward nudge onto the ear edge).
+ * (screen-vertical) to the lobe. `relDepth` is this ear's mean Z minus the other
+ * ear's: ≈0 facing forward (earring at EAR_FRONT_Z, in front of the occluder →
+ * visible); large+ when this ear turns away (pushed behind the occluder →
+ * hidden). `side` is +1 for the person's right ear, -1 for the left.
  *
  * The returned Y already accounts for the model's hook being at local y≈0.9, so
  * the hook lands on the lobe and the drop dangles beneath it.
  */
-export function earringAnchor(earCentroid: Vec2, fw: number, side: number): EarringAnchor {
+export function earringAnchor(
+  earCentroid: Vec2,
+  relDepth: number,
+  fw: number,
+  side: number,
+): EarringAnchor {
   const scale = fw * EAR_SCALE;
   const x = earCentroid.x + side * fw * EAR_OUT_NUDGE;
   const lobeY = earCentroid.y - fw * EAR_LOBE_DROP;
-  return { x, y: lobeY - 0.9 * scale, z: fw * EAR_Z, scale };
+  const z = fw * (EAR_FRONT_Z - relDepth * EAR_DEPTH_GAIN);
+  return { x, y: lobeY - 0.9 * scale, z, scale };
 }
 
 /**
- * Earring opacity from the head-yaw magnitude (radians): 1 when near
- * front-facing, fading to 0 as the head turns past ~25°, so earrings vanish
- * cleanly instead of drifting on near-profile ears.
+ * Front-surface Z of the head occluder ellipsoid at world X `x` (head centred at
+ * `headCenterX`). Returns -Infinity outside the ellipse footprint (no occluder
+ * there). An earring is hidden when its Z is behind (less than) this.
  */
-export function earringOpacity(yawMag: number): number {
-  if (yawMag <= EAR_FADE_LO) return 1;
-  if (yawMag >= EAR_FADE_HI) return 0;
-  return (EAR_FADE_HI - yawMag) / (EAR_FADE_HI - EAR_FADE_LO);
+export function occluderFrontZ(x: number, headCenterX: number, fw: number): number {
+  const dx = (x - headCenterX) / (fw * HEAD_OCC.rx);
+  const k = 1 - dx * dx;
+  if (k <= 0) return -Infinity;
+  return Math.sqrt(k) * fw * HEAD_OCC.rz;
+}
+
+/** Whether an earring is visible (in front of the head occluder) at its X/Z. */
+export function earringVisible(e: EarringAnchor, headCenterX: number, fw: number): boolean {
+  return e.z > occluderFrontZ(e.x, headCenterX, fw);
 }

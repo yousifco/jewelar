@@ -8,10 +8,19 @@ import {
   type BuiltPiece,
 } from '../engine';
 import { createFaceOccluders, type FaceOccluders } from '../occlusion/faceOccluders';
-import { avgScreen, dist, EAR_L, EAR_R, FACE, makeCoverMapper, POSE } from './mapping';
+import {
+  avgScreen,
+  avgZ,
+  dist,
+  EAR_L,
+  EAR_R,
+  FACE,
+  makeCoverMapper,
+  POSE,
+} from './mapping';
 import {
   earringAnchor,
-  earringOpacity,
+  HEAD_OCC,
   necklaceAnchor,
   type AnchorIndices,
   type EarringAnchor,
@@ -26,14 +35,14 @@ import { type FaceFrame } from './faceLandmarker';
  * pixels; the page CSS-mirrors both the video and this canvas together for the
  * selfie look (see mapping.ts).
  *
- * Anchoring maths lives in the pure, unit-tested `anchors.ts`:
- *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12). Spans the neck,
- *    pendant on the upper chest, kept strictly UPRIGHT and decoupled from the
- *    head. The chain wraps toward the back and a throat occluder hides the rear.
- *  - EARRINGS → each ear's landmark cluster (right 234/127/93, left 454/356/323),
- *    dropped to the lobe and kept in front. They fade out once the head yaw
- *    passes ~25° (from the facial transformation matrix) instead of drifting on
- *    near-profile ears.
+ * All anchoring maths lives in the pure, unit-tested `anchors.ts`:
+ *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12). Spans shoulder-to-
+ *    shoulder, pendant on the upper chest, kept strictly UPRIGHT and decoupled
+ *    from the head — so it does not swing when the head turns. Face-based
+ *    fallback when the shoulders aren't usable.
+ *  - EARRINGS → each ear's landmark cluster (right 234/227/137, left 454/447/
+ *    366), dropped to the lobe. Occlusion uses the inter-ear depth difference so
+ *    both are visible facing forward and the far one is hidden on a turn.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
@@ -51,7 +60,6 @@ export class FaceTryOn {
   private readonly necklace: BuiltPiece;
   private readonly earringR: BuiltPiece;
   private readonly earringL: BuiltPiece;
-  private readonly earringMats: THREE.Material[] = []; // for the yaw fade
   private readonly occluders: FaceOccluders;
 
   private showNecklace = true;
@@ -60,8 +68,6 @@ export class FaceTryOn {
   private clock = new THREE.Clock();
   private viewW = 1;
   private viewH = 1;
-  private readonly tmpMat = new THREE.Matrix4();
-  private readonly tmpEuler = new THREE.Euler();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -90,27 +96,15 @@ export class FaceTryOn {
     this.flash = new THREE.PointLight(0xffffff, 1.2, 0, 0);
     this.scene.add(key, fill, this.flash);
 
-    // Materials. The necklace keeps low transmission so the gems stay bright
-    // over the transparent video. The earrings get their OWN materials (marked
-    // transparent) so they can be faded out on a head turn independently.
-    const necklaceMetal = makeMetalMaterial('yellow');
-    const necklaceGem = makeGemMaterial('diamond');
-    necklaceGem.transmission = 0.25;
-    necklaceGem.envMapIntensity = 1.6;
+    // Shared materials for all AR pieces. Lower transmission than the orbit
+    // viewer so the gems stay bright over the transparent video (no scene
+    // behind them to refract).
+    const metal = makeMetalMaterial('yellow');
+    const gem = makeGemMaterial('diamond');
+    gem.transmission = 0.25;
+    gem.envMapIntensity = 1.6;
 
-    const earringMetal = makeMetalMaterial('yellow');
-    earringMetal.transparent = true;
-    const earringGem = makeGemMaterial('diamond');
-    earringGem.transmission = 0; // opaque so opacity fades cleanly
-    earringGem.envMapIntensity = 1.8;
-    earringGem.transparent = true;
-    this.earringMats.push(earringMetal, earringGem);
-
-    const assign = (
-      piece: BuiltPiece,
-      metal: THREE.Material,
-      gem: THREE.Material,
-    ): BuiltPiece => {
+    const assign = (piece: BuiltPiece): BuiltPiece => {
       for (const m of piece.metalMeshes) m.material = metal;
       for (const m of piece.gemMeshes) m.material = gem;
       // Jewellery draws after the depth-only occluders.
@@ -119,9 +113,9 @@ export class FaceTryOn {
       this.scene.add(piece.group);
       return piece;
     };
-    this.necklace = assign(buildNecklace(), necklaceMetal, necklaceGem);
-    this.earringR = assign(buildPiece('earring'), earringMetal, earringGem);
-    this.earringL = assign(buildPiece('earring'), earringMetal, earringGem);
+    this.necklace = assign(buildNecklace());
+    this.earringR = assign(buildPiece('earring'));
+    this.earringL = assign(buildPiece('earring'));
 
     this.occluders = createFaceOccluders();
     this.scene.add(this.occluders.group);
@@ -177,7 +171,7 @@ export class FaceTryOn {
     const fw = dist(earR, earL) || 1;
     const earMidX = (earR.x + earL.x) / 2;
 
-    this.occluders.group.visible = this.showNecklace;
+    this.occluders.group.visible = true;
 
     // ---- Necklace: anchored to the BODY (shoulders), kept upright ----
     this.necklace.group.visible = this.showNecklace;
@@ -186,37 +180,27 @@ export class FaceTryOn {
       this.necklace.group.position.set(a.x, a.y, a.z);
       this.necklace.group.quaternion.identity(); // UPRIGHT — ignores head pose
       this.necklace.group.scale.setScalar(a.scale);
-      // Throat occluder: a cylinder down the neck from the chin to the neck base,
-      // pushed BACK in Z so its front surface sits just behind the front chain —
-      // it hides the rear/side chain that wraps behind the neck, not the drape.
-      const topY = chin.y;
-      const botY = a.y - fw * 0.25;
-      this.occluders.neck.position.set(a.x, (topY + botY) / 2, -fw * 0.35);
-      this.occluders.neck.scale.set(fw * 0.34, Math.abs(topY - botY) + fw * 0.2, fw * 0.3);
+      // Neck occluder at the neck (above the drape, behind it in Z) so it never
+      // covers the front chain.
+      this.occluders.neck.position.set(a.x, (chin.y + a.y) / 2, -fw * 0.2);
+      this.occluders.neck.scale.set(fw * 0.45, fw * 1.0, fw * 0.3);
     }
 
-    // ---- Earrings: pinned to each ear, faded out past ~25° of head yaw ----
-    const yawMag = this.headYaw(frame);
-    const opacity = earringOpacity(yawMag);
-    for (const m of this.earringMats) m.opacity = opacity;
-    const earringsOn = this.showEarrings && opacity > 0.02;
-    this.earringR.group.visible = earringsOn;
-    this.earringL.group.visible = earringsOn;
-    if (earringsOn) {
-      this.applyEarring(this.earringR, earringAnchor(earR, fw, +1));
-      this.applyEarring(this.earringL, earringAnchor(earL, fw, -1));
+    // ---- Earrings: pinned to each ear, far ear occluded on turn ----
+    this.earringR.group.visible = this.showEarrings;
+    this.earringL.group.visible = this.showEarrings;
+    if (this.showEarrings) {
+      // Inter-ear depth difference: ~0 facing forward, large for the far ear.
+      const dz = avgZ(lm, EAR_R) - avgZ(lm, EAR_L);
+      this.applyEarring(this.earringR, earringAnchor(earR, +dz, fw, +1));
+      this.applyEarring(this.earringL, earringAnchor(earL, -dz, fw, -1));
+      // Head occluder centred on the ear line so it reaches both lobes.
+      this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2, 0);
+      this.occluders.head.scale.set(fw * HEAD_OCC.rx, fw * HEAD_OCC.ry, fw * HEAD_OCC.rz);
     }
 
     this.render();
     return true;
-  }
-
-  /** Head-yaw magnitude (radians) from the facial transformation matrix. */
-  private headYaw(frame: FaceFrame): number {
-    if (!frame.matrix || frame.matrix.length !== 16) return 0;
-    this.tmpMat.fromArray(frame.matrix);
-    this.tmpEuler.setFromRotationMatrix(this.tmpMat, 'YXZ');
-    return Math.abs(this.tmpEuler.y);
   }
 
   private applyEarring(piece: BuiltPiece, a: EarringAnchor): void {
