@@ -20,6 +20,7 @@ import {
 } from './mapping';
 import {
   earringAnchor,
+  earringLobeOffset,
   HEAD_OCC,
   necklaceAnchor,
   type AnchorIndices,
@@ -40,10 +41,11 @@ import { type FaceFrame } from './faceLandmarker';
  *    shoulder, pendant on the upper chest, kept strictly UPRIGHT and decoupled
  *    from the head — so it does not swing when the head turns. Face-based
  *    fallback when the shoulders aren't usable.
- *  - EARRINGS → the ear/cheek boundary (right 234, left 454), nudged outward +
- *    slightly up so the hook sits on the lobe and the drop hangs below the ear.
- *    Occlusion uses the inter-ear depth difference so both are visible facing
- *    forward and the far one is hidden on a turn.
+ *  - EARRINGS → the ear/cheek landmark (right 234, left 454) plus a HEAD-LOCAL
+ *    offset to the lobe (down + back + out) rotated by the facial transformation
+ *    matrix, so it lands on the lobe front-on AND turned. Occlusion uses the
+ *    inter-ear depth difference so both show forward and the far one hides on a
+ *    turn.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
@@ -192,14 +194,20 @@ export class FaceTryOn {
       this.occluders.neck.scale.set(fw * 0.45, fw * 1.0, fw * 0.3);
     }
 
-    // ---- Earrings: pinned to each ear, far ear occluded on turn ----
+    // ---- Earrings: lobe offset applied in HEAD-LOCAL space (matrix-rotated) ----
     this.earringR.group.visible = this.showEarrings;
     this.earringL.group.visible = this.showEarrings;
     if (this.showEarrings) {
+      // Offset from the ear/cheek landmark to the lobe, rotated by the head pose
+      // so it lands on the lobe whether front-on or turned.
+      const offR = earringLobeOffset(frame.matrix, fw, +1);
+      const offL = earringLobeOffset(frame.matrix, fw, -1);
+      const lobeR = { x: earR.x + offR.x, y: earR.y + offR.y };
+      const lobeL = { x: earL.x + offL.x, y: earL.y + offL.y };
       // Inter-ear depth difference: ~0 facing forward, large for the far ear.
       const dz = avgZ(lm, EAR_R) - avgZ(lm, EAR_L);
-      this.applyEarring(this.earringR, earringAnchor(earR, +dz, fw, +1));
-      this.applyEarring(this.earringL, earringAnchor(earL, -dz, fw, -1));
+      this.applyEarring(this.earringR, earringAnchor(lobeR, +dz, fw));
+      this.applyEarring(this.earringL, earringAnchor(lobeL, -dz, fw));
       // Head occluder centred on the ear line so it reaches both lobes.
       this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2, 0);
       this.occluders.head.scale.set(fw * HEAD_OCC.rx, fw * HEAD_OCC.ry, fw * HEAD_OCC.rz);

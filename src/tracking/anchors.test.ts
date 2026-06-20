@@ -2,11 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { EAR_L, EAR_R, makeCoverMapper, type Landmark, type Vec2 } from './mapping';
 import {
   earringAnchor,
+  earringLobeOffset,
   earringVisible,
   necklaceAnchor,
   occluderFrontZ,
   type AnchorIndices,
 } from './anchors';
+
+// Column-major 4×4 matrices for the head pose.
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+function yawMatrix(theta: number): number[] {
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
+  // Ry(θ), column-major.
+  return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1];
+}
 
 /**
  * These tests simulate MediaPipe output for the four head poses the user cares
@@ -64,8 +74,8 @@ function facePose(opts: {
   return lmArray(set);
 }
 
-// Helper mirroring FaceTryOn: ear centroids, fw, relDepth, anchors.
-function compute(face: Landmark[], pose: Landmark[] | null) {
+// Helper mirroring FaceTryOn: ear centroids, fw, head-local lobe offset, anchors.
+function compute(face: Landmark[], pose: Landmark[] | null, matrix: number[] = IDENTITY) {
   const earR = avg(face, EAR_R);
   const earL = avg(face, EAR_L);
   const earRZ = avgZ(face, EAR_R);
@@ -75,8 +85,12 @@ function compute(face: Landmark[], pose: Landmark[] | null) {
   const chin = P(face[152]);
   const neck = necklaceAnchor(pose, P, IDX, fw, earMidX, chin, face[152].y);
   const dz = earRZ - earLZ;
-  const eR = earringAnchor(earR, +dz, fw, +1);
-  const eL = earringAnchor(earL, -dz, fw, -1);
+  const offR = earringLobeOffset(matrix, fw, +1);
+  const offL = earringLobeOffset(matrix, fw, -1);
+  const lobeR: Vec2 = { x: earR.x + offR.x, y: earR.y + offR.y };
+  const lobeL: Vec2 = { x: earL.x + offL.x, y: earL.y + offL.y };
+  const eR = earringAnchor(lobeR, +dz, fw);
+  const eL = earringAnchor(lobeL, -dz, fw);
   return { fw, earR, earL, earMidX, neck, eR, eL };
 }
 function avg(face: Landmark[], ids: readonly number[]): Vec2 {
@@ -205,6 +219,36 @@ describe('earrings stay on the ears with correct occlusion', () => {
     // y-up world: earring group origin is below the ear centroid.
     expect(c.eR.y).toBeLessThan(c.earR.y);
     expect(c.eL.y).toBeLessThan(c.earL.y);
+  });
+});
+
+describe('earring lobe offset is head-local (matrix-rotated)', () => {
+  const fw = 100;
+
+  it('front-facing: mostly DOWN, only a small lateral component', () => {
+    const o = earringLobeOffset(IDENTITY, fw, +1);
+    expect(o.y).toBeLessThan(0); // downward (y-up world)
+    expect(Math.abs(o.y)).toBeGreaterThan(Math.abs(o.x) * 2); // dominated by down
+  });
+
+  it('a head turn (yaw) rotates the offset — its X changes', () => {
+    const fwd = earringLobeOffset(IDENTITY, fw, +1).x;
+    const right = earringLobeOffset(yawMatrix(0.5), fw, +1).x;
+    const left = earringLobeOffset(yawMatrix(-0.5), fw, +1).x;
+    expect(right).not.toBeCloseTo(fwd, 1);
+    expect(left).not.toBeCloseTo(fwd, 1);
+    // Opposite turns push the offset opposite ways.
+    expect(Math.sign(right - fwd)).toBe(-Math.sign(left - fwd));
+  });
+
+  it('the down component is preserved through a yaw (lobe stays below)', () => {
+    expect(earringLobeOffset(yawMatrix(0.6), fw, +1).y).toBeLessThan(0);
+    expect(earringLobeOffset(yawMatrix(-0.6), fw, -1).y).toBeLessThan(0);
+  });
+
+  it('no matrix → straight down fallback', () => {
+    const o = earringLobeOffset(null, fw, +1);
+    expect(o.y).toBeLessThan(0);
   });
 });
 

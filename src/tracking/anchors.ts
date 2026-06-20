@@ -13,8 +13,13 @@ import { dist, type Landmark, type Vec2 } from './mapping';
 export const EAR_FRONT_Z = 0.45; // earring Z facing forward — in front of the head occluder
 export const EAR_DEPTH_GAIN = 4.5; // how hard a head turn pushes the far earring back in Z
 export const EAR_SCALE = 0.14; // earring size (× fw)
-export const EAR_LOBE_RISE = 0.03; // lift the hook UP from the ear/cheek point to the lobe (× fw)
-export const EAR_OUT_NUDGE = 0.07; // nudge outward toward the ear (× fw)
+// Head-LOCAL offset from the ear/cheek landmark to the lobe (× fw), rotated by
+// the head pose each frame so it points at the real lobe whether front-on or
+// turned: down toward the lobe, back behind the cheek toward the ear, and a
+// small outward component.
+export const EAR_DOWN = 0.17; // head-local down (toward the lobe)
+export const EAR_BACK = 0.13; // head-local back (−Z, behind the cheek toward the ear)
+export const EAR_OUT = 0.05; // head-local outward (toward the ear side)
 export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
 
 // Necklace, relative to the shoulder span: width ≈ 60% of shoulder distance so
@@ -101,29 +106,46 @@ export interface EarringAnchor {
 }
 
 /**
- * Earring anchor. Pinned to the ear's cluster centroid, dropped straight DOWN
- * (screen-vertical) to the lobe. `relDepth` is this ear's mean Z minus the other
- * ear's: ≈0 facing forward (earring at EAR_FRONT_Z, in front of the occluder →
- * visible); large+ when this ear turns away (pushed behind the occluder →
- * hidden). `side` is +1 for the person's right ear, -1 for the left.
+ * Screen-space offset (y-up px) from the ear/cheek landmark to the lobe, applied
+ * in HEAD-LOCAL space and rotated by the head's pose so it points at the real
+ * lobe regardless of head turn. `matrix` is the MediaPipe facial transformation
+ * matrix (column-major 4×4); its 3×3 rotation rotates the local offset into view
+ * space, and the X/Y components become the screen offset. `side` is +1 for the
+ * person's right ear, −1 for the left.
  *
- * The returned Y already accounts for the model's hook being at local y≈0.9, so
- * the hook lands on the lobe and the drop dangles beneath it.
+ * Local axes (canonical face): +X = subject's left, +Y = up, +Z = forward (out
+ * of the face toward the camera). Toward the lobe = down (−Y) + back (−Z) +
+ * outward (right ear → −X, left ear → +X). Front-facing the rotation is ≈
+ * identity so this is mostly straight DOWN; turned, the back/out components
+ * project onto the screen toward the now-visible ear.
  */
-export function earringAnchor(
-  earCentroid: Vec2,
-  relDepth: number,
-  fw: number,
-  side: number,
-): EarringAnchor {
+export function earringLobeOffset(matrix: number[] | null, fw: number, side: number): Vec2 {
+  const lx = -side * EAR_OUT; // right ear (side=+1) → −X (subject's right)
+  const ly = -EAR_DOWN;
+  const lz = -EAR_BACK;
+  if (!matrix || matrix.length !== 16) {
+    return { x: lx * fw, y: ly * fw }; // no pose → straight down + small out
+  }
+  // Column-major: R[r][c] = matrix[c*4 + r]. View vector = R · local.
+  const vx = matrix[0] * lx + matrix[4] * ly + matrix[8] * lz;
+  const vy = matrix[1] * lx + matrix[5] * ly + matrix[9] * lz;
+  // View Y is up, matching the y-up world; scale by face width to pixels.
+  return { x: vx * fw, y: vy * fw };
+}
+
+/**
+ * Earring anchor at a lobe screen point (already offset from the ear landmark by
+ * `earringLobeOffset`). `relDepth` is this ear's mean Z minus the other ear's:
+ * ≈0 facing forward (earring at EAR_FRONT_Z, in front of the occluder → visible);
+ * large+ when this ear turns away (pushed behind the occluder → hidden).
+ *
+ * The returned Y accounts for the model's hook being at local y≈0.9, so the hook
+ * sits on the lobe and the drop dangles beneath it.
+ */
+export function earringAnchor(lobe: Vec2, relDepth: number, fw: number): EarringAnchor {
   const scale = fw * EAR_SCALE;
-  // From the ear/cheek point, nudge OUTWARD (toward the ear) and slightly UP so
-  // the hook sits on the lobe (the model's hook is at local y≈0.9), with the
-  // drop hanging just below the ear.
-  const x = earCentroid.x + side * fw * EAR_OUT_NUDGE;
-  const hookY = earCentroid.y + fw * EAR_LOBE_RISE;
   const z = fw * (EAR_FRONT_Z - relDepth * EAR_DEPTH_GAIN);
-  return { x, y: hookY - 0.9 * scale, z, scale };
+  return { x: lobe.x, y: lobe.y - 0.9 * scale, z, scale };
 }
 
 /**
