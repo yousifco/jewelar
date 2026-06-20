@@ -20,7 +20,10 @@ import {
 } from './mapping';
 import {
   earringAnchor,
-  earringLobeOffset,
+  earringFrontOpacity,
+  earringOffset,
+  earTurnBlend,
+  headYaw,
   HEAD_OCC,
   necklaceAnchor,
   type AnchorIndices,
@@ -41,11 +44,11 @@ import { type FaceFrame } from './faceLandmarker';
  *    shoulder, pendant on the upper chest, kept strictly UPRIGHT and decoupled
  *    from the head — so it does not swing when the head turns. Face-based
  *    fallback when the shoulders aren't usable.
- *  - EARRINGS → the ear/cheek landmark (right 234, left 454) plus a HEAD-LOCAL
- *    offset to the lobe (down + back + out) rotated by the facial transformation
- *    matrix, so it lands on the lobe front-on AND turned. Occlusion uses the
- *    inter-ear depth difference so both show forward and the far one hides on a
- *    turn.
+ *  - EARRINGS → ear/cheek landmark (right 234, left 454) + an offset that BLENDS
+ *    by head yaw: front-on it pushes OUTWARD past the face edge + down (no ear
+ *    landmark exists head-on); turned it uses the matrix-rotated head-local ear
+ *    anchor. Opacity dips to ~0.6 front-on. Occlusion (inter-ear depth) hides the
+ *    far earring on a turn.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
@@ -63,6 +66,7 @@ export class FaceTryOn {
   private readonly necklace: BuiltPiece;
   private readonly earringR: BuiltPiece;
   private readonly earringL: BuiltPiece;
+  private readonly earringMats: THREE.Material[] = []; // faded front-on
   private readonly occluders: FaceOccluders;
 
   private showNecklace = true;
@@ -105,14 +109,30 @@ export class FaceTryOn {
     // not a flat white disc. Clearcoat adds crisp surface glints; the studio
     // environment (bright panels over dark velvet) gives the facets light/dark
     // contrast, and the travelling flash makes them twinkle as the head moves.
-    const metal = makeMetalMaterial('yellow');
-    const gem = makeGemMaterial('diamond'); // transmission 0.85, ior 2.42, roughness 0
-    gem.clearcoat = 1.0;
-    gem.clearcoatRoughness = 0.0;
-    gem.thickness = 0.6; // small stones: keep them bright, not over-darkened
-    gem.envMapIntensity = 1.5;
+    const diamond = (): THREE.MeshPhysicalMaterial => {
+      const m = makeGemMaterial('diamond'); // transmission 0.85, ior 2.42, roughness 0
+      m.clearcoat = 1.0;
+      m.clearcoatRoughness = 0.0;
+      m.thickness = 0.6; // small stones: keep them bright, not over-darkened
+      m.envMapIntensity = 1.5;
+      return m;
+    };
+    const necklaceMetal = makeMetalMaterial('yellow');
+    const necklaceGem = diamond();
+    // Earrings get their OWN materials, marked transparent, so they can be faded
+    // (opacity dips front-on to mask any small anchor error) without touching the
+    // necklace.
+    const earringMetal = makeMetalMaterial('yellow');
+    earringMetal.transparent = true;
+    const earringGem = diamond();
+    earringGem.transparent = true;
+    this.earringMats.push(earringMetal, earringGem);
 
-    const assign = (piece: BuiltPiece): BuiltPiece => {
+    const assign = (
+      piece: BuiltPiece,
+      metal: THREE.Material,
+      gem: THREE.Material,
+    ): BuiltPiece => {
       for (const m of piece.metalMeshes) m.material = metal;
       for (const m of piece.gemMeshes) m.material = gem;
       // Jewellery draws after the depth-only occluders.
@@ -121,9 +141,9 @@ export class FaceTryOn {
       this.scene.add(piece.group);
       return piece;
     };
-    this.necklace = assign(buildNecklace());
-    this.earringR = assign(buildPiece('earring'));
-    this.earringL = assign(buildPiece('earring'));
+    this.necklace = assign(buildNecklace(), necklaceMetal, necklaceGem);
+    this.earringR = assign(buildPiece('earring'), earringMetal, earringGem);
+    this.earringL = assign(buildPiece('earring'), earringMetal, earringGem);
 
     this.occluders = createFaceOccluders();
     this.scene.add(this.occluders.group);
@@ -194,20 +214,22 @@ export class FaceTryOn {
       this.occluders.neck.scale.set(fw * 0.45, fw * 1.0, fw * 0.3);
     }
 
-    // ---- Earrings: lobe offset applied in HEAD-LOCAL space (matrix-rotated) ----
+    // ---- Earrings: blend FRONT-facing (outward) ↔ ear-anchored (turned) ----
     this.earringR.group.visible = this.showEarrings;
     this.earringL.group.visible = this.showEarrings;
     if (this.showEarrings) {
-      // Offset from the ear/cheek landmark to the lobe, rotated by the head pose
-      // so it lands on the lobe whether front-on or turned.
-      const offR = earringLobeOffset(frame.matrix, fw, +1);
-      const offL = earringLobeOffset(frame.matrix, fw, -1);
+      const faceCenterX = P(lm[FACE.noseTip]).x;
+      const offR = earringOffset(frame.matrix, earR.x, faceCenterX, fw, +1);
+      const offL = earringOffset(frame.matrix, earL.x, faceCenterX, fw, -1);
       const lobeR = { x: earR.x + offR.x, y: earR.y + offR.y };
       const lobeL = { x: earL.x + offL.x, y: earL.y + offL.y };
       // Inter-ear depth difference: ~0 facing forward, large for the far ear.
       const dz = avgZ(lm, EAR_R) - avgZ(lm, EAR_L);
       this.applyEarring(this.earringR, earringAnchor(lobeR, +dz, fw));
       this.applyEarring(this.earringL, earringAnchor(lobeL, -dz, fw));
+      // Fade opacity front-on (mask any small front-facing anchor error).
+      const opacity = earringFrontOpacity(earTurnBlend(Math.abs(headYaw(frame.matrix))));
+      for (const m of this.earringMats) m.opacity = opacity;
       // Head occluder centred on the ear line so it reaches both lobes.
       this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2, 0);
       this.occluders.head.scale.set(fw * HEAD_OCC.rx, fw * HEAD_OCC.ry, fw * HEAD_OCC.rz);

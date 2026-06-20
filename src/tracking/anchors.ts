@@ -1,4 +1,4 @@
-import { dist, type Landmark, type Vec2 } from './mapping';
+import { dist, lerp, type Landmark, type Vec2 } from './mapping';
 
 /**
  * Pure anchoring maths for the face try-on (BUILD_SPEC §4–5), kept free of
@@ -21,6 +21,17 @@ export const EAR_DOWN = 0.17; // head-local down (toward the lobe)
 export const EAR_BACK = 0.13; // head-local back (−Z, behind the cheek toward the ear)
 export const EAR_OUT = 0.05; // head-local outward (toward the ear side)
 export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
+
+// Front-facing anchor (no ear landmark exists head-on): push OUTWARD from the
+// face centre past the face-oval edge, and down to jaw/lobe level — so the
+// earring hangs just outside the face edge at ear height, not on the cheek.
+export const EAR_FRONT_OUT = 0.15; // outward past the face edge (× fw)
+export const EAR_FRONT_DOWN = 0.12; // down to jaw/lobe level (× fw)
+export const EAR_FRONT_OPACITY = 0.6; // earring opacity when fully front-on
+// Blend window between the front-facing anchor (yaw ≤ LO) and the ear-anchored
+// head-local offset (yaw ≥ HI, which already tracks the lobe when turned).
+export const EAR_YAW_LO = (6 * Math.PI) / 180;
+export const EAR_YAW_HI = (16 * Math.PI) / 180;
 
 // Necklace, relative to the shoulder span: width ≈ 60% of shoulder distance so
 // it rings the neck/collarbone (not the shoulder tips), raised toward the neck
@@ -133,9 +144,59 @@ export function earringLobeOffset(matrix: number[] | null, fw: number, side: num
   return { x: vx * fw, y: vy * fw };
 }
 
+/** Head-yaw angle (radians, signed) from the facial transformation matrix. */
+export function headYaw(matrix: number[] | null): number {
+  if (!matrix || matrix.length !== 16) return 0;
+  // Head forward axis = R·ẑ = 3rd column (m8,m9,m10); yaw about the vertical.
+  return Math.atan2(matrix[8], matrix[10]);
+}
+
+function smoothstep(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+/** Blend weight: 0 = front-facing anchor, 1 = ear-anchored (turned). */
+export function earTurnBlend(yawMag: number): number {
+  return smoothstep(EAR_YAW_LO, EAR_YAW_HI, yawMag);
+}
+
+/** Earring opacity: dips to EAR_FRONT_OPACITY front-on, rising to 1 when turned. */
+export function earringFrontOpacity(blend: number): number {
+  return EAR_FRONT_OPACITY + (1 - EAR_FRONT_OPACITY) * blend;
+}
+
+/**
+ * Front-facing offset (y-up px) from the ear/cheek landmark: OUTWARD away from
+ * the face centre (past the face edge) + DOWN to jaw/lobe level. Used when the
+ * head is near front-on, where no real ear landmark exists.
+ */
+export function earringFrontOffset(earX: number, faceCenterX: number, fw: number): Vec2 {
+  const outward = Math.sign(earX - faceCenterX) || -1; // away from the face centre
+  return { x: outward * fw * EAR_FRONT_OUT, y: -fw * EAR_FRONT_DOWN };
+}
+
+/**
+ * Final ear→lobe screen offset: blends the front-facing OUTWARD anchor (yaw ≤ LO)
+ * with the matrix-rotated head-local ear anchor (yaw ≥ HI) by head yaw, so it's
+ * outside the face edge front-on and on the ear once turned.
+ */
+export function earringOffset(
+  matrix: number[] | null,
+  earX: number,
+  faceCenterX: number,
+  fw: number,
+  side: number,
+): Vec2 {
+  const blend = earTurnBlend(Math.abs(headYaw(matrix)));
+  const front = earringFrontOffset(earX, faceCenterX, fw);
+  const turned = earringLobeOffset(matrix, fw, side);
+  return { x: lerp(front.x, turned.x, blend), y: lerp(front.y, turned.y, blend) };
+}
+
 /**
  * Earring anchor at a lobe screen point (already offset from the ear landmark by
- * `earringLobeOffset`). `relDepth` is this ear's mean Z minus the other ear's:
+ * `earringOffset`). `relDepth` is this ear's mean Z minus the other ear's:
  * ≈0 facing forward (earring at EAR_FRONT_Z, in front of the occluder → visible);
  * large+ when this ear turns away (pushed behind the occluder → hidden).
  *

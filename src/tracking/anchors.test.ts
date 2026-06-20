@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { EAR_L, EAR_R, makeCoverMapper, type Landmark, type Vec2 } from './mapping';
 import {
   earringAnchor,
+  earringFrontOffset,
+  earringFrontOpacity,
   earringLobeOffset,
-  earringVisible,
+  earringOffset,
+  earTurnBlend,
+  EAR_FRONT_OPACITY,
+  headYaw,
   necklaceAnchor,
   occluderFrontZ,
   type AnchorIndices,
@@ -83,10 +88,11 @@ function compute(face: Landmark[], pose: Landmark[] | null, matrix: number[] = I
   const fw = Math.hypot(earR.x - earL.x, earR.y - earL.y) || 1;
   const earMidX = (earR.x + earL.x) / 2;
   const chin = P(face[152]);
+  const faceCenterX = P(face[1]).x; // nose tip
   const neck = necklaceAnchor(pose, P, IDX, fw, earMidX, chin, face[152].y);
   const dz = earRZ - earLZ;
-  const offR = earringLobeOffset(matrix, fw, +1);
-  const offL = earringLobeOffset(matrix, fw, -1);
+  const offR = earringOffset(matrix, earR.x, faceCenterX, fw, +1);
+  const offL = earringOffset(matrix, earL.x, faceCenterX, fw, -1);
   const lobeR: Vec2 = { x: earR.x + offR.x, y: earR.y + offR.y };
   const lobeL: Vec2 = { x: earL.x + offL.x, y: earL.y + offL.y };
   const eR = earringAnchor(lobeR, +dz, fw);
@@ -186,39 +192,74 @@ describe('necklace is body-driven and upright', () => {
   });
 });
 
-describe('earrings stay on the ears with correct occlusion', () => {
-  it('forward: both earrings near their ear X and BOTH visible', () => {
-    const c = compute(FORWARD, SHOULDERS());
-    // Each earring sits at its ear (within the small outward nudge).
-    expect(Math.abs(c.eR.x - c.earR.x)).toBeLessThan(c.fw * 0.1);
-    expect(Math.abs(c.eL.x - c.earL.x)).toBeLessThan(c.fw * 0.1);
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('turn right: far (right) earring hidden, near (left) visible', () => {
-    const c = compute(TURN_RIGHT, SHOULDERS());
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(false);
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('turn left: far (left) earring hidden, near (right) visible', () => {
-    const c = compute(TURN_LEFT, SHOULDERS());
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(false);
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('look down: both earrings visible (symmetric depth)', () => {
-    const c = compute(LOOK_DOWN, SHOULDERS());
-    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
-    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
-  });
-
-  it('earrings hang BELOW the lobe (drop dangles down)', () => {
-    const c = compute(FORWARD, SHOULDERS());
-    // y-up world: earring group origin is below the ear centroid.
+describe('earrings: front-facing anchor, depth occlusion, hang', () => {
+  it('forward: pushed OUTWARD past the ear (away from the face centre) and down', () => {
+    const c = compute(FORWARD, SHOULDERS(), IDENTITY);
+    // Each earring is further from the face centre than its ear landmark.
+    expect(Math.abs(c.eR.x - c.earMidX)).toBeGreaterThan(Math.abs(c.earR.x - c.earMidX));
+    expect(Math.abs(c.eL.x - c.earMidX)).toBeGreaterThan(Math.abs(c.earL.x - c.earMidX));
     expect(c.eR.y).toBeLessThan(c.earR.y);
     expect(c.eL.y).toBeLessThan(c.earL.y);
+  });
+
+  it('turn right: right (far) earring pushed further back in Z (→ occluded)', () => {
+    const c = compute(TURN_RIGHT, SHOULDERS(), yawMatrix(0.5));
+    expect(c.eR.z).toBeLessThan(c.eL.z);
+    expect(c.eR.z).toBeLessThan(0); // behind the front plane
+  });
+
+  it('turn left: left (far) earring pushed further back in Z (→ occluded)', () => {
+    const c = compute(TURN_LEFT, SHOULDERS(), yawMatrix(-0.5));
+    expect(c.eL.z).toBeLessThan(c.eR.z);
+    expect(c.eL.z).toBeLessThan(0);
+  });
+
+  it('look down: both earrings at the same depth (symmetric)', () => {
+    const c = compute(LOOK_DOWN, SHOULDERS(), IDENTITY);
+    expect(Math.abs(c.eR.z - c.eL.z)).toBeLessThan(c.fw * 0.05);
+  });
+
+  it('earrings hang BELOW the ear (drop dangles down)', () => {
+    const c = compute(FORWARD, SHOULDERS(), IDENTITY);
+    expect(c.eR.y).toBeLessThan(c.earR.y);
+    expect(c.eL.y).toBeLessThan(c.earL.y);
+  });
+});
+
+describe('earring yaw blend (front anchor ↔ ear anchor) + opacity', () => {
+  const fw = 100;
+
+  it('headYaw is ~0 front-on and grows with a yaw rotation', () => {
+    expect(Math.abs(headYaw(IDENTITY))).toBeLessThan(1e-6);
+    expect(Math.abs(headYaw(yawMatrix(0.4)))).toBeGreaterThan(0.3);
+  });
+
+  it('blend is 0 front-on and 1 past the threshold', () => {
+    expect(earTurnBlend(0)).toBe(0);
+    expect(earTurnBlend((30 * Math.PI) / 180)).toBe(1);
+  });
+
+  it('opacity dips to EAR_FRONT_OPACITY front-on, rises to 1 turned', () => {
+    expect(earringFrontOpacity(0)).toBeCloseTo(EAR_FRONT_OPACITY, 6);
+    expect(earringFrontOpacity(1)).toBeCloseTo(1, 6);
+  });
+
+  it('front offset points OUTWARD (away from the face centre) and down', () => {
+    // Right ear left of centre → offset to the left (negative x); left ear → right.
+    expect(earringFrontOffset(40, 50, fw).x).toBeLessThan(0);
+    expect(earringFrontOffset(60, 50, fw).x).toBeGreaterThan(0);
+    expect(earringFrontOffset(40, 50, fw).y).toBeLessThan(0); // down
+  });
+
+  it('earringOffset blends: outward front-on, ear-anchored when turned', () => {
+    // Front-on (identity) → equals the front offset.
+    const front = earringFrontOffset(40, 50, fw);
+    const blended0 = earringOffset(IDENTITY, 40, 50, fw, +1);
+    expect(blended0.x).toBeCloseTo(front.x, 6);
+    // Turned hard → equals the head-local ear offset.
+    const turned = earringLobeOffset(yawMatrix(0.6), fw, +1);
+    const blended1 = earringOffset(yawMatrix(0.6), 40, 50, fw, +1);
+    expect(blended1.x).toBeCloseTo(turned.x, 6);
   });
 });
 
