@@ -1,22 +1,26 @@
 import { type Landmark, smoothLandmarks } from './mapping';
 
 /**
- * MediaPipe Tasks Vision FaceLandmarker controller (BUILD_SPEC §3).
+ * MediaPipe Tasks Vision controller for the face try-on (BUILD_SPEC §3).
  *
- * - Runs in VIDEO mode, numFaces 1, with `outputFacialTransformationMatrixes`
- *   so we get a 4x4 head-pose matrix for 3D anchoring.
- * - Opens the camera as a user-facing stream (the page CSS-mirrors it).
- * - Applies EMA smoothing to the landmarks (§4) before handing them back.
+ * Runs TWO models per frame:
+ *  - FaceLandmarker (VIDEO, numFaces 1, outputFacialTransformationMatrixes) for
+ *    the ears + head pose (earrings).
+ *  - PoseLandmarker (VIDEO, numPoses 1) for the shoulders/neck (landmarks 11/12)
+ *    so the necklace can be anchored to the BODY — which does not move when the
+ *    head turns, unlike any face landmark.
  *
- * The tasks-vision library + its WASM + the model asset are loaded from a CDN at
- * runtime (matching the seed prototype) so we don't have to bundle/copy WASM.
- * Camera access requires a secure context (HTTPS or localhost).
+ * Opens a user-facing camera (the page CSS-mirrors it) and EMA-smooths both
+ * landmark sets (§4). The library + models load from a CDN at runtime (no
+ * bundled WASM). Camera access requires a secure context (HTTPS or localhost).
  */
 
 const TASKS_VERSION = '0.10.12';
 const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}`;
 const FACE_MODEL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const POSE_MODEL =
+  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 
 // Minimal structural types for the bits of tasks-vision we use (loaded via a
 // runtime CDN import, so it has no bundled type declarations).
@@ -27,37 +31,48 @@ interface FaceResult {
   faceLandmarks: Landmark[][];
   facialTransformationMatrixes?: TransformMatrix[];
 }
+interface PoseResult {
+  landmarks: Landmark[][];
+}
 interface FaceLandmarkerInstance {
   detectForVideo(video: HTMLVideoElement, timestampMs: number): FaceResult;
 }
+interface PoseLandmarkerInstance {
+  detectForVideo(video: HTMLVideoElement, timestampMs: number): PoseResult;
+}
 interface VisionModule {
-  FilesetResolver: {
-    forVisionTasks(wasmPath: string): Promise<unknown>;
-  };
+  FilesetResolver: { forVisionTasks(wasmPath: string): Promise<unknown> };
   FaceLandmarker: {
     createFromOptions(fileset: unknown, options: unknown): Promise<FaceLandmarkerInstance>;
+  };
+  PoseLandmarker: {
+    createFromOptions(fileset: unknown, options: unknown): Promise<PoseLandmarkerInstance>;
   };
 }
 
 export interface FaceFrame {
-  /** Smoothed landmarks (normalised, y-down) or null when no face is found. */
+  /** Smoothed face landmarks (normalised, y-down) or null when no face found. */
   landmarks: Landmark[] | null;
   /** Column-major 4x4 head-pose matrix, or null when unavailable. */
   matrix: number[] | null;
+  /** Smoothed pose landmarks (33-point BlazePose) or null when no body found. */
+  pose: Landmark[] | null;
 }
 
 export type FaceFrameHandler = (frame: FaceFrame) => void;
 
 export class FaceLandmarkerController {
-  private landmarker: FaceLandmarkerInstance | null = null;
+  private face: FaceLandmarkerInstance | null = null;
+  private posey: PoseLandmarkerInstance | null = null;
   private stream: MediaStream | null = null;
   private running = false;
-  private prev: Landmark[] | null = null;
+  private prevFace: Landmark[] | null = null;
+  private prevPose: Landmark[] | null = null;
   private lastTs = 0;
 
   constructor(private readonly video: HTMLVideoElement) {}
 
-  /** Load the model + open the camera. Throws a typed Error on failure. */
+  /** Load the models + open the camera. Throws a typed Error on failure. */
   async init(): Promise<void> {
     if (!window.isSecureContext) {
       throw new TryOnError(
@@ -82,15 +97,20 @@ export class FaceLandmarkerController {
       );
     }
 
-    // 2) Load the vision engine + face model from the CDN.
+    // 2) Load the vision engine + models from the CDN.
     try {
       const vision = (await import(/* @vite-ignore */ CDN)) as VisionModule;
       const fileset = await vision.FilesetResolver.forVisionTasks(`${CDN}/wasm`);
-      this.landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
+      this.face = await vision.FaceLandmarker.createFromOptions(fileset, {
         baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numFaces: 1,
         outputFacialTransformationMatrixes: true,
+      });
+      this.posey = await vision.PoseLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: POSE_MODEL, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numPoses: 1,
       });
     } catch (err) {
       throw new TryOnError(
@@ -103,7 +123,7 @@ export class FaceLandmarkerController {
 
   /** Start the per-frame detection loop, invoking `onFrame` each animation tick. */
   start(onFrame: FaceFrameHandler): void {
-    if (!this.landmarker) throw new Error('FaceLandmarkerController.init() not called');
+    if (!this.face) throw new Error('FaceLandmarkerController.init() not called');
     this.running = true;
     const loop = (): void => {
       if (!this.running) return;
@@ -115,22 +135,37 @@ export class FaceLandmarkerController {
 
   private detect(): FaceFrame {
     const v = this.video;
-    if (!this.landmarker || v.readyState < 2 || !v.videoWidth) {
-      return { landmarks: null, matrix: null };
+    if (!this.face || v.readyState < 2 || !v.videoWidth) {
+      return { landmarks: null, matrix: null, pose: null };
     }
     // Timestamps must be strictly increasing for VIDEO mode.
     const ts = Math.max(performance.now(), this.lastTs + 1);
     this.lastTs = ts;
-    const res = this.landmarker.detectForVideo(v, ts);
-    const raw = res.faceLandmarks?.[0];
-    if (!raw) {
-      this.prev = null;
-      return { landmarks: null, matrix: null };
+
+    const faceRes = this.face.detectForVideo(v, ts);
+    const rawFace = faceRes.faceLandmarks?.[0] ?? null;
+    let landmarks: Landmark[] | null = null;
+    let matrix: number[] | null = null;
+    if (rawFace) {
+      landmarks = smoothLandmarks(rawFace, this.prevFace);
+      this.prevFace = landmarks;
+      matrix = faceRes.facialTransformationMatrixes?.[0]?.data ?? null;
+    } else {
+      this.prevFace = null;
     }
-    const smoothed = smoothLandmarks(raw, this.prev);
-    this.prev = smoothed;
-    const matrix = res.facialTransformationMatrixes?.[0]?.data ?? null;
-    return { landmarks: smoothed, matrix };
+
+    let pose: Landmark[] | null = null;
+    if (this.posey) {
+      const rawPose = this.posey.detectForVideo(v, ts).landmarks?.[0] ?? null;
+      if (rawPose) {
+        pose = smoothLandmarks(rawPose, this.prevPose);
+        this.prevPose = pose;
+      } else {
+        this.prevPose = null;
+      }
+    }
+
+    return { landmarks, matrix, pose };
   }
 
   stop(): void {
