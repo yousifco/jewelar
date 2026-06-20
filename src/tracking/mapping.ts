@@ -85,19 +85,16 @@ export const FACE = {
 } as const;
 
 /**
- * Per-ear anchor: the OUTERMOST (most lateral) face-oval silhouette points,
- * which is where the mesh reaches the ear. We average each ear's silhouette
- * point with its two oval neighbours (one above toward the temple, one below
- * toward the jaw angle) — all still lateral, so the centroid stays ON the ear
- * edge near the lobe and doesn't get pulled forward onto the cheek/jaw.
- *   - Right ear: 234 (outermost) + 127 (above) + 93 (below).
- *   - Left ear:  454 (outermost) + 356 (above) + 323 (below).
- * Verified left/right against the canonical 468 mesh face-oval ordering: 234 is
- * on the person's right, 454 on the left. Forward/interior points (e.g. 227/137)
- * are deliberately excluded because they drag the anchor toward the jaw.
+ * Per-ear anchor at the EARLOBE: the lowest points of each ear's face-oval
+ * contour (near the jaw angle), averaged. These sit at lobe height — unlike the
+ * upper/outer silhouette points (234/454) which land up at the cheek/temple.
+ *   - Right ear lobe: 132 + 58 (lowest right-ear contour points).
+ *   - Left ear lobe:  361 + 288 (lowest left-ear contour points).
+ * Verified left/right against the canonical 468 mesh face-oval ordering: 132/58
+ * are on the person's right, 361/288 on the left.
  */
-export const EAR_R = [234, 127, 93] as const;
-export const EAR_L = [454, 356, 323] as const;
+export const EAR_R = [132, 58] as const;
+export const EAR_L = [361, 288] as const;
 
 /** MediaPipe PoseLandmarker (BlazePose) shoulder indices for the necklace. */
 export const POSE = {
