@@ -250,6 +250,71 @@ export function buildNecklace(): BuiltPiece {
   return { group, metalMeshes: metal, gemMeshes: gems };
 }
 
+/**
+ * A ring for the HAND try-on. The band's hole is along local +Y so a finger
+ * along +Y passes through it; the setting + stone sit at the band's local +Z
+ * point (the camera-facing side). The try-on orients local +Y → the finger
+ * direction and local +Z → toward the camera, and a finger occluder hides the
+ * back arc. Band outer radius ≈ 1.
+ */
+export function buildHandRing(): BuiltPiece {
+  const group = new THREE.Group();
+  const metal: THREE.Mesh[] = [];
+  const gems: THREE.Mesh[] = [];
+
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.17, 28, 120));
+  band.rotation.x = Math.PI / 2; // hole +Z → +Y (finger axis)
+  metal.push(band);
+
+  // Setting + centre stone at the band's camera-facing point (local +Z).
+  const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.26, 0.3, 24));
+  basket.rotation.x = Math.PI / 2; // open toward +Z
+  basket.position.set(0, 0, 1.0);
+  metal.push(basket);
+
+  const centre = gem(0.52, 'hi', gems);
+  centre.rotation.x = Math.PI / 2; // table toward the camera (+Z)
+  centre.position.set(0, 0, 1.3);
+
+  for (const s of [-1, 1]) {
+    const acc = gem(0.18, 'lo', gems);
+    acc.rotation.x = Math.PI / 2;
+    acc.position.set(s * 0.42, 0, 0.96);
+    group.add(acc);
+  }
+
+  group.add(band, basket, centre);
+  return { group, metalMeshes: metal, gemMeshes: gems };
+}
+
+/**
+ * A bracelet for the HAND try-on: a bangle whose hole is along local +Y (the
+ * forearm axis), with a row of accent stones around the camera-facing front
+ * (+Z). The try-on orients it along the forearm and a forearm occluder hides
+ * the back arc. Band outer radius ≈ 1.
+ */
+export function buildBracelet(): BuiltPiece {
+  const group = new THREE.Group();
+  const metal: THREE.Mesh[] = [];
+  const gems: THREE.Mesh[] = [];
+
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.13, 28, 160));
+  band.rotation.x = Math.PI / 2; // hole along +Y (forearm axis)
+  metal.push(band);
+
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const a = (i / (n - 1) - 0.5) * Math.PI * 0.95; // spread across the front (+Z)
+    const acc = gem(0.2, 'lo', gems);
+    acc.rotation.x = Math.PI / 2;
+    acc.position.set(Math.sin(a) * 1.0, 0, Math.cos(a) * 1.0);
+    group.add(acc);
+  }
+
+  group.add(band);
+  return { group, metalMeshes: metal, gemMeshes: gems };
+}
+
 const BUILDERS: Record<PieceKey, () => BuiltPiece> = {
   ring: buildRing,
   pendant: buildPendant,

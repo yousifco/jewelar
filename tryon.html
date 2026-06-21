@@ -27,6 +27,7 @@
         <div class="mirror" id="mirror">
           <video id="video" autoplay playsinline muted></video>
           <canvas id="cam"></canvas>
+          <canvas id="camHand" class="cam-hidden"></canvas>
 
           <div class="hud">
             <span class="dot off" id="dot"></span>
@@ -55,7 +56,16 @@
             <span class="ico">❉</span><span class="nm">أقراط</span>
           </button>
         </div>
-        <div class="hint">اضغط القطعة لتفعيلها أو إيقافها · جرّب في إضاءة جيدة وحرّك رأسك قليلاً.</div>
+        <div class="group-label" style="margin-top: 14px">لليد والمعصم — ارفع يدك أمام الكاميرا</div>
+        <div class="items">
+          <button class="item" id="itemRing" type="button" disabled>
+            <span class="ico">◍</span><span class="nm">خاتم</span>
+          </button>
+          <button class="item" id="itemBracelet" type="button" disabled>
+            <span class="ico">⬭</span><span class="nm">سوارة</span>
+          </button>
+        </div>
+        <div class="hint">اختر قطعة للوجه أو لليد — تتبدّل الكاميرا تلقائياً حسب القطعة.</div>
       </div>
     </div>
 

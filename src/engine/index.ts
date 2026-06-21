@@ -9,6 +9,14 @@ export {
   type MetalKey,
   type GemKey,
 } from './materials';
-export { buildPiece, buildNecklace, PIECE_NAMES, type PieceKey, type BuiltPiece } from './models';
+export {
+  buildPiece,
+  buildNecklace,
+  buildHandRing,
+  buildBracelet,
+  PIECE_NAMES,
+  type PieceKey,
+  type BuiltPiece,
+} from './models';
 export { createStudioEnvironment } from './environment';
 export { loadGltfScene, fitToSize } from './gltf';

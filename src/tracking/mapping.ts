@@ -102,6 +102,16 @@ export const POSE = {
   rightShoulder: 12,
 } as const;
 
+/** MediaPipe HandLandmarker (21-point) indices for the ring + bracelet. */
+export const HAND = {
+  wrist: 0,
+  indexMCP: 5,
+  middleMCP: 9,
+  ringMCP: 13,
+  ringPIP: 14,
+  pinkyMCP: 17,
+} as const;
+
 /** Average of mapped landmark positions over the given indices. */
 export function avgScreen(
   lm: Landmark[],

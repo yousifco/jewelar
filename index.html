@@ -11,13 +11,13 @@
     />
     <link rel="stylesheet" href="/src/style.css" />
     <script>
-      // Shopify deep-link: ?piece=earring|necklace opens the camera (AR) page
-      // directly (carrying ?handle and any other params); ?piece=ring|view (or
-      // none) stays in the 3D viewer. Runs before the viewer module loads so we
-      // never init the viewer when redirecting.
+      // Shopify deep-link: ?piece=earring|necklace|ring|bracelet opens the
+      // camera (AR) page directly (carrying ?handle and any other params);
+      // ?piece=view (or none) stays in the 3D viewer. Runs before the viewer
+      // module loads so we never init the viewer when redirecting.
       (function () {
         var p = new URLSearchParams(location.search).get('piece');
-        if (p === 'earring' || p === 'necklace') {
+        if (p === 'earring' || p === 'necklace' || p === 'ring' || p === 'bracelet') {
           location.replace('tryon.html' + location.search);
         }
       })();

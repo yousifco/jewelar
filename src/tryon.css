@@ -145,7 +145,8 @@ body {
 /* The selfie mirror: flip BOTH the video and the 3D overlay together so the
    3D maths stays in native, un-mirrored camera space. */
 #video,
-#cam {
+#cam,
+#camHand {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -158,9 +159,15 @@ body {
   z-index: 1;
 }
 
-#cam {
+#cam,
+#camHand {
   z-index: 3;
   display: block;
+}
+
+/* Only the active mode's overlay canvas renders/shows. */
+.cam-hidden {
+  display: none !important;
 }
 
 .status {
