@@ -3,7 +3,7 @@ import { FaceLandmarkerController, TryOnError } from './tracking/faceLandmarker'
 import { HandLandmarkerController } from './tracking/handLandmarker';
 import { FaceTryOn } from './tracking/FaceTryOn';
 import { HandTryOn } from './tracking/HandTryOn';
-import { modelUrlForHandle } from './catalog/modelMap';
+import { modelConfigForHandle, modelUrlForHandle } from './catalog/modelMap';
 
 type Mode = 'face' | 'hand';
 type Piece = 'necklace' | 'earrings' | 'ring' | 'bracelet';
@@ -34,7 +34,8 @@ const PIECE_MODE: Record<Piece, Mode> = {
 
 const params = new URLSearchParams(location.search);
 const pieceParam = params.get('piece');
-const modelUrl = modelUrlForHandle(params.get('handle'));
+const handleParam = params.get('handle');
+const modelUrl = modelUrlForHandle(handleParam);
 
 // What's selected (rendered when its mode is active).
 const active: Record<Piece, boolean> = {
@@ -142,10 +143,16 @@ async function ensureMode(target: Mode): Promise<void> {
         hudText.textContent = tracked ? 'متتبَّع · حرّك رأسك' : 'واجه الكاميرا…';
       });
     } else {
+      const freshHand = !handScene;
       handCtl ??= new HandLandmarkerController(video);
       await handCtl.init();
       handScene ??= new HandTryOn(camHand, video);
       handScene.setActive(active.ring, active.bracelet);
+      // Load the per-handle GLB ring once (?piece=ring deep-link). Same model +
+      // materials as the 3D viewer; falls back to the procedural ring on error.
+      if (freshHand && modelUrl && pieceParam === 'ring') {
+        void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam));
+      }
       handCtl.start((frame) => {
         const tracked = handScene!.update(frame);
         dot.classList.toggle('off', !tracked);

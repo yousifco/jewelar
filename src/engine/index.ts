@@ -20,3 +20,4 @@ export {
 } from './models';
 export { createStudioEnvironment } from './environment';
 export { loadGltfScene, fitToSize } from './gltf';
+export { dressImportedModel, type DressModelOptions } from './dressModel';

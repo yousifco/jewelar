@@ -11,19 +11,17 @@
     />
     <link rel="stylesheet" href="/src/style.css" />
     <script>
-      // Shopify deep-link routing (runs before the viewer module loads so we
-      // never init the viewer needlessly):
-      //  - ?piece=ring  → ALWAYS stays in this 3D viewer. The AR mirror has no
-      //    finger/hand tracking yet, so a ring can't be placed on a finger; the
-      //    viewer shows the per-handle GLB (or procedural ring) with our gold/
-      //    diamond materials and live المعدن/الحجر selectors instead.
-      //  - ?piece=earring|necklace|bracelet → camera (AR) page, carrying
-      //    ?handle and any other params. (bracelet has no wrist tracking yet
-      //    either, but the viewer only renders rings, so it stays on AR.)
-      //  - ?piece=view (or none) → stays in the 3D viewer.
+      // Shopify deep-link: a try-on piece opens the camera (AR) page directly,
+      // carrying ?handle and any other params (the mode is chosen in tryon.ts):
+      //  - ?piece=ring|bracelet → HAND mirror (hand tracking; the ring is placed
+      //    on the ring finger with the per-handle GLB + our gold/diamond look).
+      //  - ?piece=earring|necklace → FACE mirror.
+      //  - ?piece=view (or none) → stays in this 3D viewer.
+      // Runs before the viewer module loads so we never init the viewer when
+      // redirecting.
       (function () {
         var p = new URLSearchParams(location.search).get('piece');
-        if (p === 'earring' || p === 'necklace' || p === 'bracelet') {
+        if (p === 'earring' || p === 'necklace' || p === 'ring' || p === 'bracelet') {
           location.replace('tryon.html' + location.search);
         }
       })();

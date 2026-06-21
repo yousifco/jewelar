@@ -15,6 +15,7 @@ import {
 } from './materials';
 import { buildPiece, type BuiltPiece, type PieceKey } from './models';
 import { fitToSize } from './gltf';
+import { dressImportedModel } from './dressModel';
 import type { ModelPartConfig } from '../catalog/modelMap';
 
 /**
@@ -157,45 +158,18 @@ export class JewelryViewer {
   }
 
   /**
-   * Re-assign OUR shared materials onto an imported model: the band/largest
-   * mesh (and any tagged `metal`) → gold; the clustered small meshes (and any
-   * tagged `stone`) → diamond. Every mesh name is logged so the config in
-   * catalog/modelMap.ts can be authored when the size heuristic is off.
+   * Re-assign OUR shared materials onto an imported model (band → gold, small
+   * clustered parts → diamond). Shared with the hand try-on via
+   * dressImportedModel so the SAME .glb renders identically in both.
    */
   private dressModel(root: THREE.Object3D, config: ModelPartConfig | null): void {
-    const meshes: THREE.Mesh[] = [];
-    root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
-    });
-    if (meshes.length === 0) return;
-
-    const sizes = meshes.map((m) => {
-      const s = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
-      return Math.max(s.x, s.y, s.z);
-    });
-    const maxSize = Math.max(...sizes, 1e-6);
-    const hit = (name: string, subs?: string[]): boolean =>
-      !!subs && subs.some((s) => name.toLowerCase().includes(s.toLowerCase()));
-
-    const stone = meshes.map((m, i) => {
-      const n = m.name || '';
-      if (hit(n, config?.stone)) return true;
-      if (hit(n, config?.metal)) return false;
-      return sizes[i] < maxSize * STONE_SIZE_RATIO; // heuristic: small part = stone
-    });
-
-    // eslint-disable-next-line no-console
-    console.info(
-      '[viewer] loaded model parts (tag these in MODEL_CONFIG_BY_HANDLE if wrong):',
-      meshes.map((m, i) => ({
-        name: m.name || '(unnamed)',
-        size: +sizes[i].toFixed(3),
-        as: stone[i] ? 'stone→diamond' : 'metal→gold',
-      })),
-    );
-
-    meshes.forEach((m, i) => {
-      m.material = stone[i] ? this.gemMaterial : this.metalMaterial;
+    dressImportedModel(root, {
+      metal: this.metalMaterial,
+      gem: this.gemMaterial,
+      metalTags: config?.metal,
+      stoneTags: config?.stone,
+      stoneSizeRatio: STONE_SIZE_RATIO,
+      label: 'viewer',
     });
   }
 

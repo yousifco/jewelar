@@ -3,6 +3,8 @@ import {
   buildBracelet,
   buildHandRing,
   createStudioEnvironment,
+  dressImportedModel,
+  loadGltfScene,
   makeGemMaterial,
   makeMetalMaterial,
   type BuiltPiece,
@@ -10,6 +12,7 @@ import {
 import { createHandOccluders, type HandOccluders } from '../occlusion/handOccluders';
 import { dist, HAND, lerp, makeCoverMapper, normalize2 } from './mapping';
 import { type HandFrame } from './handLandmarker';
+import type { ModelPartConfig } from '../catalog/modelMap';
 
 /**
  * The Phase 3 hand try-on scene — ring on the ring finger, bracelet on the
@@ -24,10 +27,15 @@ import { type HandFrame } from './handLandmarker';
 // Tunables.
 const RING_TILT = 0.55; // finger tilt out of screen (ellipse foreshortening)
 const FOREARM_TILT = 0.45;
-const RING_W = 0.17; // ring band radius ÷ palm width
+const RING_W = 0.17; // ring band radius ÷ palm width (procedural fallback)
+// Ring band radius ÷ finger width (dist ringMCP↔pinkyMCP). The band radius
+// should ≈ half the finger, so the hole hugs the finger. Tune via the console
+// logs (point 6) if the GLB ring sits loose/tight.
+const RING_FINGER_W = 0.62;
 const BRACELET_W = 0.55; // bracelet band radius ÷ palm width
 const FINGER_OCC = 0.78; // finger occluder radius ÷ band radius
 const FOREARM_OCC = 0.9;
+const LOG_EVERY = 0.5; // seconds between ring-transform logs
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const FORWARD_Z = new THREE.Vector3(0, 0, 1);
@@ -42,12 +50,21 @@ export class HandTryOn {
   private readonly bracelet: BuiltPiece;
   private readonly occluders: HandOccluders;
 
+  // Shared gold + diamond materials (also dress a loaded GLB ring).
+  private readonly metalMat: THREE.MeshStandardMaterial;
+  private readonly gemMat: THREE.MeshPhysicalMaterial;
+
   private showRing = true;
   private showBracelet = false;
   private elapsed = 0;
   private clock = new THREE.Clock();
   private viewW = 1;
   private viewH = 1;
+
+  // Console tuning aids (point 6): track detection edges + throttle logs.
+  private wasTracked: boolean | null = null;
+  private lastLog = 0;
+  private customRing = false; // a GLB swapped in → use finger-width scaling
 
   // Scratch vectors (avoid per-frame allocation).
   private readonly axis = new THREE.Vector3();
@@ -89,6 +106,8 @@ export class HandTryOn {
     gem.clearcoat = 1.0;
     gem.clearcoatRoughness = 0.0;
     gem.envMapIntensity = 2.4;
+    this.metalMat = metal;
+    this.gemMat = gem;
 
     const assign = (piece: BuiltPiece): BuiltPiece => {
       for (const m of piece.metalMeshes) m.material = metal;
@@ -110,6 +129,85 @@ export class HandTryOn {
   setActive(ring: boolean, bracelet: boolean): void {
     this.showRing = ring;
     this.showBracelet = bracelet;
+  }
+
+  /**
+   * Real catalog model hook: load the per-handle .glb ring and swap it into the
+   * anchored ring group (the procedural ring stays as the fallback on error).
+   * The model is re-dressed with OUR gold + diamond materials (same helper as
+   * the 3D viewer → identical look) and re-oriented so its hole axis runs along
+   * the band's local +Y (which the per-frame anchoring points across the finger).
+   */
+  async loadCustomRing(url: string, config?: ModelPartConfig | null): Promise<void> {
+    try {
+      const scene = await loadGltfScene(url);
+      dressImportedModel(scene, {
+        metal: this.metalMat,
+        gem: this.gemMat,
+        metalTags: config?.metal,
+        stoneTags: config?.stone,
+        label: 'hand',
+      });
+      this.swapRingModel(scene);
+      this.customRing = true;
+      // eslint-disable-next-line no-console
+      console.info('[hand] custom ring model loaded', url);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[hand] custom ring failed, using procedural ring:', err);
+    }
+  }
+
+  /**
+   * Normalise a loaded ring into the procedural local convention: hole axis
+   * along +Y, band radius ≈ 1 (so the per-frame `scale.setScalar(r)` makes the
+   * world band radius ≈ r). The hole axis is taken as the model's THINNEST
+   * bounding-box axis (a band/torus is thin through its hole), then rotated to
+   * +Y; the band diameter is the larger of the remaining two extents.
+   */
+  private swapRingModel(obj: THREE.Object3D): void {
+    // Centre the model's content at the origin.
+    const box = new THREE.Box3().setFromObject(obj);
+    const center = box.getCenter(new THREE.Vector3());
+    obj.position.sub(center);
+
+    const wrap = new THREE.Group();
+    wrap.add(obj);
+
+    // Rotate the thinnest axis (the hole) to local +Y.
+    const size = box.getSize(new THREE.Vector3());
+    const minAxis = size.x <= size.y && size.x <= size.z ? 'x' : size.y <= size.z ? 'y' : 'z';
+    if (minAxis === 'x') wrap.rotation.z = Math.PI / 2; // x → y
+    else if (minAxis === 'z') wrap.rotation.x = -Math.PI / 2; // z → y
+
+    // Scale so the band radius ≈ 1 (band diameter = max extent in the XZ plane).
+    wrap.updateMatrixWorld(true);
+    const box2 = new THREE.Box3().setFromObject(wrap);
+    const s2 = box2.getSize(new THREE.Vector3());
+    const bandDia = Math.max(s2.x, s2.z) || 1;
+    wrap.scale.setScalar(2 / bandDia); // diameter → 2 ⇒ radius → 1
+
+    wrap.renderOrder = 1;
+    wrap.traverse((o) => (o.renderOrder = 1));
+
+    // eslint-disable-next-line no-console
+    console.info('[hand] ring model normalised', {
+      holeAxis: minAxis,
+      modelSize: { x: +size.x.toFixed(3), y: +size.y.toFixed(3), z: +size.z.toFixed(3) },
+      bandDiameter: +bandDia.toFixed(3),
+      localScale: +(2 / bandDia).toFixed(3),
+    });
+
+    for (const child of [...this.ring.group.children]) this.ring.group.remove(child);
+    this.ring.group.add(wrap);
+  }
+
+  /** Log only on a detection edge (hand found ↔ lost) to avoid per-frame spam. */
+  private logTracked(tracked: boolean): void {
+    if (this.wasTracked === tracked) return;
+    this.wasTracked = tracked;
+    // eslint-disable-next-line no-console
+    console.info(`[hand] hand ${tracked ? 'detected' : 'not detected'}`);
   }
 
   resize(): void {
@@ -137,12 +235,14 @@ export class HandTryOn {
 
     const lm = frame.landmarks;
     if (!lm) {
+      this.logTracked(false);
       this.ring.group.visible = false;
       this.bracelet.group.visible = false;
       this.occluders.group.visible = false;
       this.render();
       return false;
     }
+    this.logTracked(true);
 
     const P = makeCoverMapper(this.video.videoWidth, this.video.videoHeight, this.viewW, this.viewH);
     const idx = P(lm[HAND.indexMCP]);
@@ -154,17 +254,37 @@ export class HandTryOn {
     this.ring.group.visible = this.showRing;
     this.occluders.finger.visible = this.showRing;
     if (this.showRing) {
-      const mcp = P(lm[HAND.ringMCP]);
-      const pip = P(lm[HAND.ringPIP]);
+      const mcp = P(lm[HAND.ringMCP]); // 13
+      const pip = P(lm[HAND.ringPIP]); // 14
+      // Seat the band at the finger BASE (closer to the MCP knuckle).
       const cx = lerp(mcp.x, pip.x, 0.42);
       const cy = lerp(mcp.y, pip.y, 0.42);
+      // Hole axis runs ALONG the finger (13→14), tilted out of screen so the
+      // band reads as an ellipse; orientAlong maps the band's local +Y to it.
       const fdir = normalize2(pip.x - mcp.x, pip.y - mcp.y);
       this.axis.set(fdir.x, fdir.y, RING_TILT).normalize();
-      const r = palmW * RING_W;
+      // Scale the band diameter to the finger width. Proxy = ring-finger MCP to
+      // pinky MCP (13↔17), which spans ≈ one finger; band radius ≈ half of that.
+      const fingerW = dist(mcp, pinky);
+      const r = this.customRing ? fingerW * RING_FINGER_W : palmW * RING_W;
       this.ring.group.position.set(cx, cy, 0);
       this.orientAlong(this.ring.group);
       this.ring.group.scale.setScalar(r);
       this.placeOccluder(this.occluders.finger, cx, cy, r * FINGER_OCC, palmW * 1.5);
+
+      // Tuning log (throttled): the computed ring transform.
+      if (t - this.lastLog > LOG_EVERY) {
+        this.lastLog = t;
+        // eslint-disable-next-line no-console
+        console.info('[hand] ring transform', {
+          center: { x: +cx.toFixed(1), y: +cy.toFixed(1) },
+          radiusPx: +r.toFixed(1),
+          fingerWpx: +fingerW.toFixed(1),
+          palmWpx: +palmW.toFixed(1),
+          axis: { x: +this.axis.x.toFixed(2), y: +this.axis.y.toFixed(2), z: +this.axis.z.toFixed(2) },
+          source: this.customRing ? 'glb' : 'procedural',
+        });
+      }
     }
 
     // ---- Bracelet on the wrist (landmarks 0, 5, 17; forearm 9→0) ----
