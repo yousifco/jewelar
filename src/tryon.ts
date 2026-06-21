@@ -36,6 +36,12 @@ const params = new URLSearchParams(location.search);
 const pieceParam = params.get('piece');
 const handleParam = params.get('handle');
 const modelUrl = modelUrlForHandle(handleParam);
+// eslint-disable-next-line no-console
+console.info('[tryon] deep-link resolution', {
+  piece: pieceParam,
+  handle: handleParam,
+  modelUrl: modelUrl ?? '(none → procedural)',
+});
 
 // What's selected (rendered when its mode is active).
 const active: Record<Piece, boolean> = {
@@ -148,10 +154,17 @@ async function ensureMode(target: Mode): Promise<void> {
       await handCtl.init();
       handScene ??= new HandTryOn(camHand, video);
       handScene.setActive(active.ring, active.bracelet);
-      // Load the per-handle GLB ring once (?piece=ring deep-link). Same model +
-      // materials as the 3D viewer; falls back to the procedural ring on error.
-      if (freshHand && modelUrl && pieceParam === 'ring') {
-        void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam));
+      // Load the per-handle GLB ring (same model + loader + map as the 3D
+      // viewer). Loaded once; falls back to the procedural ring on error.
+      if (freshHand) {
+        if (modelUrl) {
+          // eslint-disable-next-line no-console
+          console.info('[tryon] requesting custom ring model →', modelUrl);
+          void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam));
+        } else {
+          // eslint-disable-next-line no-console
+          console.info('[tryon] no model for handle=%s → procedural ring', handleParam);
+        }
       }
       handCtl.start((frame) => {
         const tracked = handScene!.update(frame);

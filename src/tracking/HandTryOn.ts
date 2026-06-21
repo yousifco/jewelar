@@ -65,6 +65,7 @@ export class HandTryOn {
   private wasTracked: boolean | null = null;
   private lastLog = 0;
   private customRing = false; // a GLB swapped in → use finger-width scaling
+  private loggedSource: boolean | null = null; // last logged render source
 
   // Scratch vectors (avoid per-frame allocation).
   private readonly axis = new THREE.Vector3();
@@ -139,8 +140,17 @@ export class HandTryOn {
    * the band's local +Y (which the per-frame anchoring points across the finger).
    */
   async loadCustomRing(url: string, config?: ModelPartConfig | null): Promise<void> {
+    // eslint-disable-next-line no-console
+    console.info('[hand] loadCustomRing: resolved model URL =', url);
     try {
       const scene = await loadGltfScene(url);
+      let meshCount = 0;
+      scene.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) meshCount++;
+      });
+      // eslint-disable-next-line no-console
+      console.info(`[hand] GLB loaded OK (${meshCount} mesh${meshCount === 1 ? '' : 'es'})`);
+      if (meshCount === 0) throw new Error('GLB contains no meshes');
       dressImportedModel(scene, {
         metal: this.metalMat,
         gem: this.gemMat,
@@ -151,10 +161,10 @@ export class HandTryOn {
       this.swapRingModel(scene);
       this.customRing = true;
       // eslint-disable-next-line no-console
-      console.info('[hand] custom ring model loaded', url);
+      console.info('[hand] rendering: LOADED GLB (procedural ring replaced)');
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('[hand] custom ring failed, using procedural ring:', err);
+      console.error('[hand] GLB load/setup FAILED → rendering: PROCEDURAL fallback. error:', err);
     }
   }
 
@@ -168,6 +178,7 @@ export class HandTryOn {
   private swapRingModel(obj: THREE.Object3D): void {
     // Centre the model's content at the origin.
     const box = new THREE.Box3().setFromObject(obj);
+    if (box.isEmpty()) throw new Error('loaded ring has an empty bounding box');
     const center = box.getCenter(new THREE.Vector3());
     obj.position.sub(center);
 
@@ -253,6 +264,11 @@ export class HandTryOn {
     // ---- Ring on the ring finger (base, landmarks 13→14) ----
     this.ring.group.visible = this.showRing;
     this.occluders.finger.visible = this.showRing;
+    if (this.showRing && this.loggedSource !== this.customRing) {
+      this.loggedSource = this.customRing;
+      // eslint-disable-next-line no-console
+      console.info(`[hand] ring render source = ${this.customRing ? 'GLB' : 'PROCEDURAL'}`);
+    }
     if (this.showRing) {
       const mcp = P(lm[HAND.ringMCP]); // 13
       const pip = P(lm[HAND.ringPIP]); // 14
