@@ -10,8 +10,8 @@ import { dist, lerp, type Landmark, type Vec2 } from './mapping';
  */
 
 // ---- Tunables ----
-export const EAR_FRONT_Z = 0.45; // earring Z facing forward — in front of the head occluder
-export const EAR_DEPTH_GAIN = 4.5; // how hard a head turn pushes the far earring back in Z
+export const EAR_Z_BIAS = 0.45; // earring Z facing forward — in front of the head proxy
+export const EAR_DEPTH_TURN = 1.6; // how hard a head turn pushes the far earring back (× yaw rad)
 export const EAR_SCALE = 0.14; // earring size (× fw)
 // Head-LOCAL offset from the ear/cheek landmark to the lobe (× fw), rotated by
 // the head pose each frame so it points at the real lobe whether front-on or
@@ -20,7 +20,7 @@ export const EAR_SCALE = 0.14; // earring size (× fw)
 export const EAR_DOWN = 0.17; // head-local down (toward the lobe)
 export const EAR_BACK = 0.13; // head-local back (−Z, behind the cheek toward the ear)
 export const EAR_OUT = 0.05; // head-local outward (toward the ear side)
-export const HEAD_OCC = { rx: 0.6, ry: 0.82, rz: 0.55 }; // head-occluder ellipsoid radii (× fw)
+export const HEAD_OCC = { rx: 0.62, ry: 0.95, rz: 0.6 }; // head-occluder ellipsoid radii (× fw)
 
 // Front-facing anchor (no ear landmark exists head-on): push a little OUTWARD
 // from the face centre and down to jaw/lobe level — so the earring sits just
@@ -195,17 +195,25 @@ export function earringOffset(
 }
 
 /**
- * Earring anchor at a lobe screen point (already offset from the ear landmark by
- * `earringOffset`). `relDepth` is this ear's mean Z minus the other ear's:
- * ≈0 facing forward (earring at EAR_FRONT_Z, in front of the occluder → visible);
- * large+ when this ear turns away (pushed behind the occluder → hidden).
- *
- * The returned Y accounts for the model's hook being at local y≈0.9, so the hook
- * sits on the lobe and the drop dangles beneath it.
+ * True ear depth (world Z) for the earring. Facing forward (yawMag≈0) both
+ * earrings sit at EAR_Z_BIAS, in front of the head proxy → visible. As the head
+ * turns, the FAR ear (the one with the larger landmark Z, i.e. positive
+ * `relDepth`) is pushed strongly back behind the proxy → hidden, while the near
+ * ear comes forward. Magnitude comes from the (sign-safe) yaw; only the SIGN of
+ * `relDepth` picks which ear — so it's robust to the matrix's axis convention.
  */
-export function earringAnchor(lobe: Vec2, relDepth: number, fw: number): EarringAnchor {
+export function earringDepth(yawMag: number, relDepth: number, fw: number): number {
+  return fw * (EAR_Z_BIAS - EAR_DEPTH_TURN * yawMag * Math.sign(relDepth));
+}
+
+/**
+ * Earring anchor at a lobe screen point (offset from the ear landmark by
+ * `earringOffset`) and a world Z from `earringDepth`. The returned Y accounts
+ * for the model's hook being at local y≈0.9, so the hook sits on the lobe and
+ * the drop dangles beneath it.
+ */
+export function earringAnchor(lobe: Vec2, z: number, fw: number): EarringAnchor {
   const scale = fw * EAR_SCALE;
-  const z = fw * (EAR_FRONT_Z - relDepth * EAR_DEPTH_GAIN);
   return { x: lobe.x, y: lobe.y - 0.9 * scale, z, scale };
 }
 

@@ -20,7 +20,9 @@ import {
 } from './mapping';
 import {
   earringAnchor,
+  earringDepth,
   earringOffset,
+  headYaw,
   HEAD_OCC,
   necklaceAnchor,
   type AnchorIndices,
@@ -37,15 +39,16 @@ import { type FaceFrame } from './faceLandmarker';
  * selfie look (see mapping.ts).
  *
  * All anchoring maths lives in the pure, unit-tested `anchors.ts`:
- *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12). Spans shoulder-to-
- *    shoulder, pendant on the upper chest, kept strictly UPRIGHT and decoupled
- *    from the head — so it does not swing when the head turns. Face-based
- *    fallback when the shoulders aren't usable.
- *  - EARRINGS → ear/cheek landmark (right 234, left 454) + an offset that BLENDS
- *    by head yaw: front-on a small outward + down offset beside the ear (no ear
- *    landmark exists head-on); turned it uses the matrix-rotated head-local ear
- *    anchor. Stones are fully opaque pearl-white. Occlusion (inter-ear depth)
- *    hides the far earring on a turn.
+ *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12), upright. The chain is
+ *    a continuous LOOP whose back arc wraps behind the neck; a depth-only neck
+ *    occluder hides that arc so only the front drape + pendant read.
+ *  - EARRINGS → ear/cheek landmark (right 234, left 454) + a yaw-blended offset
+ *    (front-on outward beside the ear; turned, the matrix-rotated ear anchor).
+ *    Each is placed at its true ear DEPTH so a depth-only head proxy hides the
+ *    far one when the head turns. Stones are fully opaque pearl-white.
+ *
+ * Both occluders (head ellipsoid, neck cylinder) write depth only
+ * (colorWrite:false) and render before the jewellery — see faceOccluders.ts.
  */
 
 const ANCHOR_IDX: AnchorIndices = {
@@ -204,6 +207,10 @@ export class FaceTryOn {
     const earMidX = (earR.x + earL.x) / 2;
 
     this.occluders.group.visible = true;
+    // Each occluder only writes depth when its piece is shown (otherwise a stale
+    // proxy could hide the other piece).
+    this.occluders.neck.visible = this.showNecklace;
+    this.occluders.head.visible = this.showEarrings;
 
     // ---- Necklace: anchored to the BODY (shoulders), kept upright ----
     this.necklace.group.visible = this.showNecklace;
@@ -212,10 +219,12 @@ export class FaceTryOn {
       this.necklace.group.position.set(a.x, a.y, a.z);
       this.necklace.group.quaternion.identity(); // UPRIGHT — ignores head pose
       this.necklace.group.scale.setScalar(a.scale);
-      // Neck occluder at the neck (above the drape, behind it in Z) so it never
-      // covers the front chain.
-      this.occluders.neck.position.set(a.x, (chin.y + a.y) / 2, -fw * 0.2);
-      this.occluders.neck.scale.set(fw * 0.45, fw * 1.0, fw * 0.3);
+      // Neck occluder: a column over the necklace's BACK arc (which wraps behind
+      // the neck at higher Y / −Z). Its front face sits just behind the front
+      // chain (≈ z 0), so the front drape + collarbone stay visible while the
+      // back arc is hidden — reading as one continuous loop.
+      this.occluders.neck.position.set(a.x, a.y + a.scale * 0.66, a.z - a.scale * 0.65);
+      this.occluders.neck.scale.set(a.scale * 1.0, a.scale * 1.5, a.scale * 0.6);
     }
 
     // ---- Earrings: blend FRONT-facing (outward) ↔ ear-anchored (turned) ----
@@ -227,12 +236,17 @@ export class FaceTryOn {
       const offL = earringOffset(frame.matrix, earL.x, faceCenterX, fw, -1);
       const lobeR = { x: earR.x + offR.x, y: earR.y + offR.y };
       const lobeL = { x: earL.x + offL.x, y: earL.y + offL.y };
-      // Inter-ear depth difference: ~0 facing forward, large for the far ear.
+      // True ear depth: facing forward both sit in front of the head proxy;
+      // turned, the far ear (larger landmark Z) is pushed behind it. Magnitude
+      // from the sign-safe yaw, side from the inter-ear depth difference.
+      const yawMag = Math.abs(headYaw(frame.matrix));
       const dz = avgZ(lm, EAR_R) - avgZ(lm, EAR_L);
-      this.applyEarring(this.earringR, earringAnchor(lobeR, +dz, fw));
-      this.applyEarring(this.earringL, earringAnchor(lobeL, -dz, fw));
-      // Head occluder centred on the ear line so it reaches both lobes.
-      this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2, 0);
+      this.applyEarring(this.earringR, earringAnchor(lobeR, earringDepth(yawMag, +dz, fw), fw));
+      this.applyEarring(this.earringL, earringAnchor(lobeL, earringDepth(yawMag, -dz, fw), fw));
+      // Head proxy: ellipsoid over the head, reaching down to the mouth/jaw so
+      // the far earring (which drifts toward the nose/mouth when turned) is hidden
+      // behind it. The near earring sits in front and stays visible.
+      this.occluders.head.position.set(earMidX, (earR.y + earL.y) / 2 - fw * 0.12, 0);
       this.occluders.head.scale.set(fw * HEAD_OCC.rx, fw * HEAD_OCC.ry, fw * HEAD_OCC.rz);
     }
 

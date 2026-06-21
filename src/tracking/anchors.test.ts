@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { EAR_L, EAR_R, makeCoverMapper, type Landmark, type Vec2 } from './mapping';
 import {
   earringAnchor,
+  earringDepth,
   earringFrontOffset,
   earringFrontOpacity,
   earringLobeOffset,
   earringOffset,
+  earringVisible,
   earTurnBlend,
   EAR_FRONT_OPACITY,
   headYaw,
@@ -91,12 +93,13 @@ function compute(face: Landmark[], pose: Landmark[] | null, matrix: number[] = I
   const faceCenterX = P(face[1]).x; // nose tip
   const neck = necklaceAnchor(pose, P, IDX, fw, earMidX, chin, face[152].y);
   const dz = earRZ - earLZ;
+  const yawMag = Math.abs(headYaw(matrix));
   const offR = earringOffset(matrix, earR.x, faceCenterX, fw, +1);
   const offL = earringOffset(matrix, earL.x, faceCenterX, fw, -1);
   const lobeR: Vec2 = { x: earR.x + offR.x, y: earR.y + offR.y };
   const lobeL: Vec2 = { x: earL.x + offL.x, y: earL.y + offL.y };
-  const eR = earringAnchor(lobeR, +dz, fw);
-  const eL = earringAnchor(lobeL, -dz, fw);
+  const eR = earringAnchor(lobeR, earringDepth(yawMag, +dz, fw), fw);
+  const eL = earringAnchor(lobeL, earringDepth(yawMag, -dz, fw), fw);
   return { fw, earR, earL, earMidX, neck, eR, eL };
 }
 function avg(face: Landmark[], ids: readonly number[]): Vec2 {
@@ -223,6 +226,24 @@ describe('earrings: front-facing anchor, depth occlusion, hang', () => {
     const c = compute(FORWARD, SHOULDERS(), IDENTITY);
     expect(c.eR.y).toBeLessThan(c.earR.y);
     expect(c.eL.y).toBeLessThan(c.earL.y);
+  });
+
+  it('forward: BOTH earrings are in front of the head proxy (visible)', () => {
+    const c = compute(FORWARD, SHOULDERS(), IDENTITY);
+    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
+    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
+  });
+
+  it('turn right: far (right) earring is occluded, near (left) visible', () => {
+    const c = compute(TURN_RIGHT, SHOULDERS(), yawMatrix(0.5));
+    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(false);
+    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(true);
+  });
+
+  it('turn left: far (left) earring is occluded, near (right) visible', () => {
+    const c = compute(TURN_LEFT, SHOULDERS(), yawMatrix(-0.5));
+    expect(earringVisible(c.eL, c.earMidX, c.fw)).toBe(false);
+    expect(earringVisible(c.eR, c.earMidX, c.fw)).toBe(true);
   });
 });
 
