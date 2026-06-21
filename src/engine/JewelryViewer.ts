@@ -38,6 +38,7 @@ export class JewelryViewer {
   private readonly gemMaterial: THREE.MeshPhysicalMaterial;
 
   private current: BuiltPiece | null = null;
+  private customModel: THREE.Object3D | null = null;
   private clock = new THREE.Clock();
   private running = false;
   private elapsed = 0;
@@ -106,16 +107,35 @@ export class JewelryViewer {
 
   /** Load a parametric piece, assigning the shared materials. */
   setPiece(key: PieceKey): void {
-    if (this.current) {
-      this.scene.remove(this.current.group);
-      disposePiece(this.current);
-    }
+    this.clearDisplayed();
     const piece = buildPiece(key);
     for (const m of piece.metalMeshes) m.material = this.metalMaterial;
     for (const m of piece.gemMeshes) m.material = this.gemMaterial;
     piece.group.scale.setScalar(1.25);
     this.scene.add(piece.group);
     this.current = piece;
+  }
+
+  /**
+   * Show a loaded custom model (real catalog .glb) instead of a procedural
+   * piece — keeps its own materials and is auto-fit to the viewer.
+   */
+  setCustomModel(obj: THREE.Object3D): void {
+    this.clearDisplayed();
+    this.customModel = obj;
+    this.scene.add(obj);
+  }
+
+  private clearDisplayed(): void {
+    if (this.current) {
+      this.scene.remove(this.current.group);
+      disposePiece(this.current);
+      this.current = null;
+    }
+    if (this.customModel) {
+      this.scene.remove(this.customModel);
+      this.customModel = null;
+    }
   }
 
   setMetal(key: MetalKey): void {

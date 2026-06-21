@@ -40,7 +40,9 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 3;
+  /* Above the loading veil (z-index 4) so the mode toggle is reachable even
+     while the 3D engine is still warming up. */
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -85,27 +87,29 @@ body {
   color: var(--gold-bright);
 }
 
-/* Segmented mode toggle: 3D viewer ⇄ camera (AR). */
+/* Segmented mode toggle: 3D viewer ⇄ camera (AR). Prominent + always tappable. */
 .mode-toggle {
   display: inline-flex;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(203, 163, 80, 0.06);
-  padding: 3px;
-  gap: 2px;
+  background: rgba(20, 15, 8, 0.7);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  padding: 4px;
+  gap: 3px;
 }
 
 .mode-toggle .mode {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ivory);
   text-decoration: none;
-  padding: 7px 14px;
+  padding: 9px 18px;
   border-radius: 999px;
   transition: 0.15s;
 }
 
-.mode-toggle .mode:hover {
-  color: var(--ivory);
+.mode-toggle .mode:not(.active):hover {
+  color: var(--gold-bright);
 }
 
 .mode-toggle .mode.active {

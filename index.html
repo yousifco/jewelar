@@ -12,12 +12,13 @@
     <link rel="stylesheet" href="/src/style.css" />
     <script>
       // Shopify deep-link: ?piece=earring|necklace opens the camera (AR) page
-      // directly; ?piece=ring|view (or none) stays in the 3D viewer. Runs before
-      // the viewer module loads so we never init the viewer when redirecting.
+      // directly (carrying ?handle and any other params); ?piece=ring|view (or
+      // none) stays in the 3D viewer. Runs before the viewer module loads so we
+      // never init the viewer when redirecting.
       (function () {
         var p = new URLSearchParams(location.search).get('piece');
         if (p === 'earring' || p === 'necklace') {
-          location.replace('tryon.html?piece=' + p);
+          location.replace('tryon.html' + location.search);
         }
       })();
     </script>

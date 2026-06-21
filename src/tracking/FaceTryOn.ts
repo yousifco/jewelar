@@ -3,6 +3,8 @@ import {
   buildNecklace,
   buildPiece,
   createStudioEnvironment,
+  fitToSize,
+  loadGltfScene,
   makeGemMaterial,
   makeMetalMaterial,
   type BuiltPiece,
@@ -245,6 +247,35 @@ export class FaceTryOn {
     piece.group.position.set(a.x, a.y, a.z);
     piece.group.quaternion.identity();
     piece.group.scale.setScalar(a.scale);
+  }
+
+  /**
+   * Real catalog model hook: load a .glb for the active piece and swap it into
+   * the same anchored group (the procedural piece stays until/unless it loads,
+   * and remains the fallback on error). Authoring should match the procedural
+   * local convention (see catalog/modelMap.ts); the model is auto-fit to size.
+   */
+  async loadCustomModel(which: 'necklace' | 'earrings', url: string): Promise<void> {
+    try {
+      const scene = await loadGltfScene(url);
+      if (which === 'necklace') {
+        this.swapPieceModel(this.necklace, scene);
+      } else {
+        this.swapPieceModel(this.earringR, scene);
+        this.swapPieceModel(this.earringL, scene.clone());
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[try-on] custom model failed, using procedural piece:', err);
+    }
+  }
+
+  private swapPieceModel(piece: BuiltPiece, obj: THREE.Object3D): void {
+    for (const child of [...piece.group.children]) piece.group.remove(child);
+    const wrap = fitToSize(obj, 2); // procedural local size ≈ X∈[-1,1] ⇒ 2 units
+    wrap.renderOrder = 1;
+    wrap.traverse((o) => (o.renderOrder = 1));
+    piece.group.add(wrap);
   }
 
   private render(): void {

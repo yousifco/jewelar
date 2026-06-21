@@ -1,6 +1,11 @@
 import './tryon.css';
 import { FaceLandmarkerController, TryOnError } from './tracking/faceLandmarker';
 import { FaceTryOn } from './tracking/FaceTryOn';
+import { modelUrlForHandle } from './catalog/modelMap';
+
+const params = new URLSearchParams(location.search);
+const piece = params.get('piece');
+const modelUrl = modelUrlForHandle(params.get('handle'));
 
 const video = document.getElementById('video') as HTMLVideoElement;
 const canvas = document.getElementById('cam') as HTMLCanvasElement;
@@ -62,6 +67,12 @@ async function start(): Promise<void> {
   tryOn.setActive(necklaceOn, earringsOn);
   window.addEventListener('resize', () => tryOn?.resize());
 
+  // Real catalog model hook: if ?handle maps to a .glb, load it for the active
+  // face piece (necklace/earrings); otherwise the procedural piece stays.
+  if (modelUrl && (piece === 'necklace' || piece === 'earring')) {
+    void tryOn.loadCustomModel(piece === 'necklace' ? 'necklace' : 'earrings', modelUrl);
+  }
+
   // Enable the tray now that the engine is live.
   itemNecklace.disabled = false;
   itemEarrings.disabled = false;
@@ -90,7 +101,6 @@ itemEarrings.addEventListener('click', () => toggle(itemEarrings, 'earrings'));
 
 // Shopify deep-link: ?piece=earring|necklace pre-selects that piece and opens
 // the camera directly. (?piece=ring|view is handled on the viewer page.)
-const piece = new URLSearchParams(location.search).get('piece');
 if (piece === 'earring' || piece === 'necklace') {
   necklaceOn = piece === 'necklace';
   earringsOn = piece === 'earring';

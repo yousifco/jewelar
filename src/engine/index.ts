@@ -11,3 +11,4 @@ export {
 } from './materials';
 export { buildPiece, buildNecklace, PIECE_NAMES, type PieceKey, type BuiltPiece } from './models';
 export { createStudioEnvironment } from './environment';
+export { loadGltfScene, fitToSize } from './gltf';
