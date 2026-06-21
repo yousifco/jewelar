@@ -1,10 +1,10 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
   buildBracelet,
   buildHandRing,
   createStudioEnvironment,
   dressImportedModel,
-  loadGltfScene,
   makeGemMaterial,
   makeMetalMaterial,
   type BuiltPiece,
@@ -156,35 +156,58 @@ export class HandTryOn {
     url: string,
     config?: ModelPartConfig | null,
   ): Promise<{ ok: boolean; error?: string }> {
+    // Log the FINAL absolute URL the loader will fetch (confirms /jewelar/… is
+    // not doubled to /jewelar/jewelar/…). A leading-slash path resolves against
+    // the origin, so this should be https://<host>/jewelar/models/ring1.glb.
+    const absUrl = new URL(url, window.location.href).href;
     // eslint-disable-next-line no-console
-    console.info('[hand] loadCustomRing: resolved model URL =', url);
-    try {
-      const scene = await loadGltfScene(url);
-      let meshCount = 0;
-      scene.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshCount++;
-      });
-      // eslint-disable-next-line no-console
-      console.info(`[hand] GLB loaded OK (${meshCount} mesh${meshCount === 1 ? '' : 'es'})`);
-      if (meshCount === 0) throw new Error('GLB contains no meshes');
-      dressImportedModel(scene, {
-        metal: this.metalMat,
-        gem: this.gemMat,
-        metalTags: config?.metal,
-        stoneTags: config?.stone,
-        label: 'hand',
-      });
-      this.swapRingModel(scene);
-      this.customRing = true;
-      // eslint-disable-next-line no-console
-      console.info('[hand] rendering: LOADED GLB (attached to hand anchor)');
-      return { ok: true };
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      // eslint-disable-next-line no-console
-      console.error('[hand] GLB load/setup FAILED. error:', err);
-      return { ok: false, error };
-    }
+    console.info('[hand] GLTFLoader.load → input:', url, '| absolute:', absUrl);
+
+    return new Promise((resolve) => {
+      new GLTFLoader().load(
+        url,
+        (gltf) => {
+          try {
+            let meshCount = 0;
+            gltf.scene.traverse((o) => {
+              if ((o as THREE.Mesh).isMesh) meshCount++;
+            });
+            // eslint-disable-next-line no-console
+            console.info(`[hand] GLB loaded OK (${meshCount} mesh${meshCount === 1 ? '' : 'es'}) ←`, absUrl);
+            if (meshCount === 0) throw new Error('GLB contains no meshes');
+            dressImportedModel(gltf.scene, {
+              metal: this.metalMat,
+              gem: this.gemMat,
+              metalTags: config?.metal,
+              stoneTags: config?.stone,
+              label: 'hand',
+            });
+            this.swapRingModel(gltf.scene);
+            this.customRing = true;
+            // eslint-disable-next-line no-console
+            console.info('[hand] GLB attached to hand anchor (procedural ring not built)');
+            resolve({ ok: true });
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            // eslint-disable-next-line no-console
+            console.error('[hand] GLB post-process FAILED:', err);
+            resolve({ ok: false, error });
+          }
+        },
+        (ev) => {
+          if (ev.lengthComputable) {
+            // eslint-disable-next-line no-console
+            console.info(`[hand] GLB downloading ${((ev.loaded / ev.total) * 100).toFixed(0)}%`);
+          }
+        },
+        (err) => {
+          const error = err instanceof Error ? err.message : String(err);
+          // eslint-disable-next-line no-console
+          console.error('[hand] GLTFLoader onError for', absUrl, '→', err);
+          resolve({ ok: false, error: `load error: ${error}` });
+        },
+      );
+    });
   }
 
   /**
