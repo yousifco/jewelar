@@ -39,9 +39,9 @@ import { type FaceFrame } from './faceLandmarker';
  * selfie look (see mapping.ts).
  *
  * All anchoring maths lives in the pure, unit-tested `anchors.ts`:
- *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12), upright. The chain is
- *    a continuous LOOP whose back arc wraps behind the neck; a depth-only neck
- *    occluder hides that arc so only the front drape + pendant read.
+ *  - NECKLACE → the BODY (PoseLandmarker shoulders 11/12), upright. A simple
+ *    chest drape; its tucked-back TOP is hidden by a depth-only neck occluder so
+ *    the chain reads as coming from behind the neck (no loop up to the ears).
  *  - EARRINGS → ear/cheek landmark (right 234, left 454) + a yaw-blended offset
  *    (front-on outward beside the ear; turned, the matrix-rotated ear anchor).
  *    Each is placed at its true ear DEPTH so a depth-only head proxy hides the
@@ -219,12 +219,11 @@ export class FaceTryOn {
       this.necklace.group.position.set(a.x, a.y, a.z);
       this.necklace.group.quaternion.identity(); // UPRIGHT — ignores head pose
       this.necklace.group.scale.setScalar(a.scale);
-      // Neck occluder: a column over the necklace's BACK arc (which wraps behind
-      // the neck at higher Y / −Z). Its front face sits just behind the front
-      // chain (≈ z 0), so the front drape + collarbone stay visible while the
-      // back arc is hidden — reading as one continuous loop.
-      this.occluders.neck.position.set(a.x, a.y + a.scale * 0.66, a.z - a.scale * 0.65);
-      this.occluders.neck.scale.set(a.scale * 1.0, a.scale * 1.5, a.scale * 0.6);
+      // Neck occluder over the chain's tucked-back TOP, so it disappears behind
+      // the neck/jaw. Front face sits just behind the front drape (≈ z 0); kept
+      // LOW (around the neck base) so it never reveals a loop near the ears.
+      this.occluders.neck.position.set(a.x, a.y + a.scale * 0.25, a.z - a.scale * 0.54);
+      this.occluders.neck.scale.set(a.scale * 1.15, a.scale * 1.4, a.scale * 0.5);
     }
 
     // ---- Earrings: blend FRONT-facing (outward) ↔ ear-anchored (turned) ----

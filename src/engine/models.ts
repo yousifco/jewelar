@@ -197,11 +197,12 @@ function buildEarring(): BuiltPiece {
 }
 
 /**
- * A necklace for the face try-on (Phase 2): a CONTINUOUS LOOP around the neck.
- * The front drape (low, +Z) carries the halo pendant; the chain then rises up
- * the sides and passes BEHIND the neck (higher Y, −Z). The try-on positions a
- * neck occluder over that back arc, so only the front drape + the chain coming
- * forward at the collarbone show — it reads as one loop, not two cut strands.
+ * A necklace for the face try-on (Phase 2): a SIMPLE chest drape. A quadratic
+ * curve hangs low across the chest with the halo pendant resting at centre. The
+ * two TOP ends sit slightly BACK (−Z) so they tuck behind the neck (hidden by
+ * the try-on's neck occluder) instead of ending abruptly — the chain reads as
+ * coming down from behind the neck onto the chest. It does NOT loop up around
+ * the neck toward the ears.
  *
  * Local space: +Y up, +Z toward the camera, X≈±1 ≈ half the necklace span; the
  * origin sits at the neck base. The try-on scales it to ~neck width.
@@ -211,28 +212,18 @@ export function buildNecklace(): BuiltPiece {
   const metal: THREE.Mesh[] = [];
   const gems: THREE.Mesh[] = [];
 
-  // One closed curve: front drape (z>0, low) → right collarbone → up the right
-  // side and behind the neck (z<0, high) → back centre → down the left side →
-  // left collarbone → back to the front. CatmullRom (closed) keeps it smooth.
+  // Drape: tops slightly back (−Z) to tuck behind the neck; deep, forward
+  // control point → a natural low drape with the pendant out on the chest.
   const V = THREE.Vector3;
-  const pts = [
-    new V(-1.0, 0.28, 0.0), // left collarbone (front)
-    new V(-0.6, -0.5, 0.06), // front drape, left
-    new V(0.0, -0.78, 0.1), // front bottom (pendant hangs here)
-    new V(0.6, -0.5, 0.06), // front drape, right
-    new V(1.0, 0.28, 0.0), // right collarbone (front)
-    new V(0.95, 0.66, -0.16), // right side, rising back
-    new V(0.52, 1.0, -0.44), // right back
-    new V(0.0, 1.06, -0.54), // back centre (behind the neck → occluded)
-    new V(-0.52, 1.0, -0.44), // left back
-    new V(-0.95, 0.66, -0.16), // left side, rising back
-  ];
-  const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
-  const chain = new THREE.Mesh(new THREE.TubeGeometry(curve, 260, 0.028, 12, true));
+  const left = new V(-1.0, 0.3, -0.18);
+  const ctrl = new V(0.0, -1.85, 0.5);
+  const right = new V(1.0, 0.3, -0.18);
+  const curve = new THREE.QuadraticBezierCurve3(left, ctrl, right);
+  const chain = new THREE.Mesh(new THREE.TubeGeometry(curve, 160, 0.028, 12, false));
   metal.push(chain);
 
-  // Pendant dangling from the front-bottom of the drape (chest centre).
-  const low = new V(0, -0.78, 0.1);
+  // Pendant dangling from the lowest point of the drape (centre chest).
+  const low = curve.getPoint(0.5); // ≈ (0, -0.78, 0.16)
   const bail = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.02, 16, 48));
   bail.position.set(low.x, low.y - 0.05, low.z + 0.02);
   metal.push(bail);
