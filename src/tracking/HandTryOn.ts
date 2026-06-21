@@ -37,6 +37,23 @@ const FINGER_OCC = 0.78; // finger occluder radius ÷ band radius
 const FOREARM_OCC = 0.9;
 const LOG_EVERY = 0.5; // seconds between ring-transform logs
 
+// DIAGNOSTIC: render the loaded GLB with its OWN materials (the Meshy gold +
+// baked white stones live in the model's baseColor texture) rather than
+// overriding with our gold/diamond shader. The model is a single fused mesh, so
+// our override would flatten it to plain gold and lose the pavé stones.
+const USE_ORIGINAL_MATERIALS = true;
+
+/** Fit details surfaced to the debug overlay after a GLB is attached. */
+export interface RingFitInfo {
+  meshes: number;
+  materials: number;
+  bbox: { x: number; y: number; z: number };
+  holeAxis: 'x' | 'y' | 'z';
+  rotationDeg: { x: number; y: number; z: number };
+  normalizeScale: number;
+  materialsMode: 'original' | 'gold/diamond';
+}
+
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const FORWARD_Z = new THREE.Vector3(0, 0, 1);
 
@@ -146,16 +163,16 @@ export class HandTryOn {
   }
 
   /**
-   * Real catalog model hook: load the per-handle .glb ring and swap it into the
-   * anchored ring group (the procedural ring stays as the fallback on error).
-   * The model is re-dressed with OUR gold + diamond materials (same helper as
-   * the 3D viewer → identical look) and re-oriented so its hole axis runs along
-   * the band's local +Y (which the per-frame anchoring points across the finger).
+   * Real catalog model hook: load the per-handle .glb ring, attach it to the
+   * anchored ring group, and re-orient so its hole axis runs along the band's
+   * local +Y (which the per-frame anchoring points across the finger). By
+   * default (USE_ORIGINAL_MATERIALS) it keeps the model's OWN Meshy materials so
+   * baked stones survive; flip the flag to re-dress with our gold/diamond.
    */
   async loadCustomRing(
     url: string,
     config?: ModelPartConfig | null,
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; info?: RingFitInfo }> {
     // Log the FINAL absolute URL the loader will fetch (confirms /jewelar/… is
     // not doubled to /jewelar/jewelar/…). A leading-slash path resolves against
     // the origin, so this should be https://<host>/jewelar/models/ring1.glb.
@@ -169,24 +186,46 @@ export class HandTryOn {
         (gltf) => {
           try {
             let meshCount = 0;
+            const mats = new Set<string>();
             gltf.scene.traverse((o) => {
-              if ((o as THREE.Mesh).isMesh) meshCount++;
+              const mesh = o as THREE.Mesh;
+              if (!mesh.isMesh) return;
+              meshCount++;
+              const m = mesh.material;
+              (Array.isArray(m) ? m : [m]).forEach((x) => x && mats.add(x.uuid));
             });
             // eslint-disable-next-line no-console
-            console.info(`[hand] GLB loaded OK (${meshCount} mesh${meshCount === 1 ? '' : 'es'}) ←`, absUrl);
+            console.info(
+              `[hand] GLB loaded OK (${meshCount} mesh${meshCount === 1 ? '' : 'es'}, ` +
+                `${mats.size} material${mats.size === 1 ? '' : 's'}) ←`,
+              absUrl,
+            );
             if (meshCount === 0) throw new Error('GLB contains no meshes');
-            dressImportedModel(gltf.scene, {
-              metal: this.metalMat,
-              gem: this.gemMat,
-              metalTags: config?.metal,
-              stoneTags: config?.stone,
-              label: 'hand',
-            });
-            this.swapRingModel(gltf.scene);
+
+            if (USE_ORIGINAL_MATERIALS) {
+              // eslint-disable-next-line no-console
+              console.info('[hand] keeping ORIGINAL Meshy materials (no gold/diamond override)');
+            } else {
+              dressImportedModel(gltf.scene, {
+                metal: this.metalMat,
+                gem: this.gemMat,
+                metalTags: config?.metal,
+                stoneTags: config?.stone,
+                label: 'hand',
+              });
+            }
+
+            const fit = this.swapRingModel(gltf.scene);
+            const info: RingFitInfo = {
+              meshes: meshCount,
+              materials: mats.size,
+              materialsMode: USE_ORIGINAL_MATERIALS ? 'original' : 'gold/diamond',
+              ...fit,
+            };
             this.customRing = true;
             // eslint-disable-next-line no-console
-            console.info('[hand] GLB attached to hand anchor (procedural ring not built)');
-            resolve({ ok: true });
+            console.info('[hand] GLB attached to hand anchor (procedural ring not built)', info);
+            resolve({ ok: true, info });
           } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             // eslint-disable-next-line no-console
@@ -217,7 +256,12 @@ export class HandTryOn {
    * bounding-box axis (a band/torus is thin through its hole), then rotated to
    * +Y; the band diameter is the larger of the remaining two extents.
    */
-  private swapRingModel(obj: THREE.Object3D): void {
+  private swapRingModel(obj: THREE.Object3D): {
+    bbox: { x: number; y: number; z: number };
+    holeAxis: 'x' | 'y' | 'z';
+    rotationDeg: { x: number; y: number; z: number };
+    normalizeScale: number;
+  } {
     // Centre the model's content at the origin.
     const box = new THREE.Box3().setFromObject(obj);
     if (box.isEmpty()) throw new Error('loaded ring has an empty bounding box');
@@ -227,32 +271,43 @@ export class HandTryOn {
     const wrap = new THREE.Group();
     wrap.add(obj);
 
-    // Rotate the thinnest axis (the hole) to local +Y.
+    // Rotate the thinnest axis (the hole) to local +Y so the band wraps the
+    // finger (the per-frame anchoring points local +Y across the finger).
     const size = box.getSize(new THREE.Vector3());
-    const minAxis = size.x <= size.y && size.x <= size.z ? 'x' : size.y <= size.z ? 'y' : 'z';
-    if (minAxis === 'x') wrap.rotation.z = Math.PI / 2; // x → y
-    else if (minAxis === 'z') wrap.rotation.x = -Math.PI / 2; // z → y
+    const holeAxis = size.x <= size.y && size.x <= size.z ? 'x' : size.y <= size.z ? 'y' : 'z';
+    if (holeAxis === 'x') wrap.rotation.z = Math.PI / 2; // x → y
+    else if (holeAxis === 'z') wrap.rotation.x = -Math.PI / 2; // z → y
+    const rotationDeg = {
+      x: +THREE.MathUtils.radToDeg(wrap.rotation.x).toFixed(0),
+      y: +THREE.MathUtils.radToDeg(wrap.rotation.y).toFixed(0),
+      z: +THREE.MathUtils.radToDeg(wrap.rotation.z).toFixed(0),
+    };
 
     // Scale so the band radius ≈ 1 (band diameter = max extent in the XZ plane).
+    // The per-frame anchoring then scales this by the finger width.
     wrap.updateMatrixWorld(true);
     const box2 = new THREE.Box3().setFromObject(wrap);
     const s2 = box2.getSize(new THREE.Vector3());
     const bandDia = Math.max(s2.x, s2.z) || 1;
-    wrap.scale.setScalar(2 / bandDia); // diameter → 2 ⇒ radius → 1
+    const normalizeScale = 2 / bandDia; // diameter → 2 ⇒ radius → 1
+    wrap.scale.setScalar(normalizeScale);
 
     wrap.renderOrder = 1;
     wrap.traverse((o) => (o.renderOrder = 1));
 
+    const bbox = { x: +size.x.toFixed(3), y: +size.y.toFixed(3), z: +size.z.toFixed(3) };
     // eslint-disable-next-line no-console
     console.info('[hand] ring model normalised', {
-      holeAxis: minAxis,
-      modelSize: { x: +size.x.toFixed(3), y: +size.y.toFixed(3), z: +size.z.toFixed(3) },
+      holeAxis,
+      bbox,
       bandDiameter: +bandDia.toFixed(3),
-      localScale: +(2 / bandDia).toFixed(3),
+      normalizeScale: +normalizeScale.toFixed(3),
+      rotationDeg,
     });
 
     for (const child of [...this.ring.group.children]) this.ring.group.remove(child);
     this.ring.group.add(wrap);
+    return { bbox, holeAxis, rotationDeg, normalizeScale };
   }
 
   /** Log only on a detection edge (hand found ↔ lost) to avoid per-frame spam. */

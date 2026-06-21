@@ -189,7 +189,18 @@ async function ensureMode(target: Mode): Promise<void> {
           console.info('[tryon] requesting custom ring model →', modelUrl);
           setRingDebug('loading GLB…');
           void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam)).then((res) => {
-            setRingDebug(res.ok ? 'loaded GLB OK' : `GLB FAILED -> ${res.error}`);
+            if (res.ok && res.info) {
+              const i = res.info;
+              setRingDebug(
+                `loaded GLB OK (${i.materialsMode} materials)\n` +
+                  `meshes=${i.meshes} materials=${i.materials}\n` +
+                  `bbox=${i.bbox.x}×${i.bbox.y}×${i.bbox.z}  holeAxis=${i.holeAxis}\n` +
+                  `rotation(deg)=${i.rotationDeg.x},${i.rotationDeg.y},${i.rotationDeg.z}  ` +
+                  `normScale=${i.normalizeScale.toFixed(3)}`,
+              );
+            } else {
+              setRingDebug(`GLB FAILED -> ${res.error}`);
+            }
           });
         } else {
           // eslint-disable-next-line no-console
