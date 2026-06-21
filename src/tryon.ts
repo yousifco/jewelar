@@ -43,6 +43,33 @@ console.info('[tryon] deep-link resolution', {
   modelUrl: modelUrl ?? '(none → procedural)',
 });
 
+/**
+ * On-screen debug overlay for the ring model (point 3): a fixed text panel that
+ * shows the received handle, the resolved model URL, and the ring source —
+ * "loaded GLB OK" / "GLB FAILED -> …" / "using procedural (no model URL
+ * matched)". Visible on mobile where the console isn't.
+ */
+function setRingDebug(status: string): void {
+  let el = document.getElementById('ringDebug');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ringDebug';
+    el.style.cssText =
+      'position:fixed;left:8px;top:8px;z-index:99999;max-width:92vw;padding:6px 9px;' +
+      'background:rgba(0,0,0,.74);color:#fff;font:12px/1.45 ui-monospace,Menlo,monospace;' +
+      'white-space:pre-wrap;border-radius:7px;pointer-events:none;direction:ltr;text-align:left';
+    document.body.appendChild(el);
+  }
+  el.textContent =
+    `RING: ${status}\nhandle = ${handleParam ?? '(none)'}\nurl = ${modelUrl ?? '(no model URL matched)'}`;
+}
+
+// Show the resolution immediately for the hand pieces so a handle/URL mismatch
+// is visible even before the camera starts.
+if (pieceParam === 'ring' || pieceParam === 'bracelet') {
+  setRingDebug(modelUrl ? 'resolving…' : 'using procedural (no model URL matched)');
+}
+
 // What's selected (rendered when its mode is active).
 const active: Record<Piece, boolean> = {
   necklace: true,
@@ -152,18 +179,22 @@ async function ensureMode(target: Mode): Promise<void> {
       const freshHand = !handScene;
       handCtl ??= new HandLandmarkerController(video);
       await handCtl.init();
-      handScene ??= new HandTryOn(camHand, video);
+      // When a model URL resolved, build with NO procedural ring — only the GLB
+      // is shown (or nothing, if it fails). Same loader + dressing as the viewer.
+      handScene ??= new HandTryOn(camHand, video, !!modelUrl);
       handScene.setActive(active.ring, active.bracelet);
-      // Load the per-handle GLB ring (same model + loader + map as the 3D
-      // viewer). Loaded once; falls back to the procedural ring on error.
       if (freshHand) {
         if (modelUrl) {
           // eslint-disable-next-line no-console
           console.info('[tryon] requesting custom ring model →', modelUrl);
-          void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam));
+          setRingDebug('loading GLB…');
+          void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam)).then((res) => {
+            setRingDebug(res.ok ? 'loaded GLB OK' : `GLB FAILED -> ${res.error}`);
+          });
         } else {
           // eslint-disable-next-line no-console
           console.info('[tryon] no model for handle=%s → procedural ring', handleParam);
+          setRingDebug('using procedural (no model URL matched)');
         }
       }
       handCtl.start((frame) => {

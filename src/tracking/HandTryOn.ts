@@ -76,6 +76,8 @@ export class HandTryOn {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly video: HTMLVideoElement,
+    /** When true, DON'T build the procedural ring — a GLB will be attached. */
+    expectCustomRing = false,
   ) {
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -118,7 +120,18 @@ export class HandTryOn {
       this.scene.add(piece.group);
       return piece;
     };
-    this.ring = assign(buildHandRing());
+    // When a per-handle GLB is expected, attach only an empty anchor group (no
+    // procedural ring) so the finger never shows the built-in ring — the GLB
+    // populates this group, or it stays empty if the GLB fails (debug overlay
+    // reports which). Otherwise build the procedural ring as before.
+    if (expectCustomRing) {
+      const group = new THREE.Group();
+      group.renderOrder = 1;
+      this.scene.add(group);
+      this.ring = { group, metalMeshes: [], gemMeshes: [] };
+    } else {
+      this.ring = assign(buildHandRing());
+    }
     this.bracelet = assign(buildBracelet());
 
     this.occluders = createHandOccluders();
@@ -139,7 +152,10 @@ export class HandTryOn {
    * the 3D viewer → identical look) and re-oriented so its hole axis runs along
    * the band's local +Y (which the per-frame anchoring points across the finger).
    */
-  async loadCustomRing(url: string, config?: ModelPartConfig | null): Promise<void> {
+  async loadCustomRing(
+    url: string,
+    config?: ModelPartConfig | null,
+  ): Promise<{ ok: boolean; error?: string }> {
     // eslint-disable-next-line no-console
     console.info('[hand] loadCustomRing: resolved model URL =', url);
     try {
@@ -161,10 +177,13 @@ export class HandTryOn {
       this.swapRingModel(scene);
       this.customRing = true;
       // eslint-disable-next-line no-console
-      console.info('[hand] rendering: LOADED GLB (procedural ring replaced)');
+      console.info('[hand] rendering: LOADED GLB (attached to hand anchor)');
+      return { ok: true };
     } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
       // eslint-disable-next-line no-console
-      console.error('[hand] GLB load/setup FAILED → rendering: PROCEDURAL fallback. error:', err);
+      console.error('[hand] GLB load/setup FAILED. error:', err);
+      return { ok: false, error };
     }
   }
 
