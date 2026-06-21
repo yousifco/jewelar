@@ -1,6 +1,5 @@
 import './style.css';
 import {
-  fitToSize,
   GEMS,
   JewelryViewer,
   loadGltfScene,
@@ -10,7 +9,7 @@ import {
   type MetalKey,
   type PieceKey,
 } from './engine';
-import { modelUrlForHandle } from './catalog/modelMap';
+import { modelConfigForHandle, modelUrlForHandle } from './catalog/modelMap';
 import { renderChips } from './ui/chips';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -22,11 +21,14 @@ viewer.setMetal('yellow');
 viewer.setGem('diamond');
 
 // Real catalog model hook: if ?handle maps to a .glb, load it instead of the
-// procedural piece (falls back silently to procedural on miss or error).
-const modelUrl = modelUrlForHandle(new URLSearchParams(location.search).get('handle'));
+// procedural piece (falls back silently to procedural on miss or error). The
+// viewer re-dresses imported meshes with our gold/diamond materials and fits
+// them to the procedural ring's size/placement.
+const handle = new URLSearchParams(location.search).get('handle');
+const modelUrl = modelUrlForHandle(handle);
 if (modelUrl) {
   loadGltfScene(modelUrl)
-    .then((scene) => viewer.setCustomModel(fitToSize(scene, 2.4)))
+    .then((scene) => viewer.setCustomModel(scene, modelConfigForHandle(handle)))
     .catch((err) => {
       // eslint-disable-next-line no-console
       console.error('[viewer] custom model failed, using procedural piece:', err);

@@ -13,11 +13,22 @@
     <script>
       // Shopify deep-link: ?piece=earring|necklace|ring|bracelet opens the
       // camera (AR) page directly (carrying ?handle and any other params);
-      // ?piece=view (or none) stays in the 3D viewer. Runs before the viewer
-      // module loads so we never init the viewer when redirecting.
+      // ?piece=view (or none) stays in the 3D viewer. EXCEPTION: a ring/bracelet
+      // whose handle has a 3D model stays in the viewer so the metal/stone
+      // selectors apply (keep VIEWER_MODEL_HANDLES in sync with the ring/
+      // bracelet keys of MODEL_BY_HANDLE in src/catalog/modelMap.ts). Runs
+      // before the viewer module loads so we never init the viewer needlessly.
       (function () {
-        var p = new URLSearchParams(location.search).get('piece');
-        if (p === 'earring' || p === 'necklace' || p === 'ring' || p === 'bracelet') {
+        var params = new URLSearchParams(location.search);
+        var p = params.get('piece');
+        var handle = params.get('handle');
+        var VIEWER_MODEL_HANDLES = ['tryon-test-ring'];
+        var modeled = handle && VIEWER_MODEL_HANDLES.indexOf(handle) !== -1;
+        var toAR =
+          p === 'earring' ||
+          p === 'necklace' ||
+          ((p === 'ring' || p === 'bracelet') && !modeled);
+        if (toAR) {
           location.replace('tryon.html' + location.search);
         }
       })();

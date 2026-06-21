@@ -14,6 +14,8 @@ import {
   type MetalKey,
 } from './materials';
 import { buildPiece, type BuiltPiece, type PieceKey } from './models';
+import { fitToSize } from './gltf';
+import type { ModelPartConfig } from '../catalog/modelMap';
 
 /**
  * The Phase 1 PBR rendering engine, realism pass.
@@ -25,6 +27,14 @@ import { buildPiece, type BuiltPiece, type PieceKey } from './models';
  *
  * Exposes setters for piece / metal / gem / exposure that the UI binds to.
  */
+
+// Uniform scale applied to every procedural piece; a loaded model is fit to the
+// same on-screen size so swapping in a real .glb keeps the catalog framing.
+const PIECE_SCALE = 1.25;
+// A loaded part smaller than this fraction of the largest part is treated as a
+// (clustered) stone; the largest part is the band/shank → metal.
+const STONE_SIZE_RATIO = 0.4;
+
 export class JewelryViewer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
@@ -111,19 +121,82 @@ export class JewelryViewer {
     const piece = buildPiece(key);
     for (const m of piece.metalMeshes) m.material = this.metalMaterial;
     for (const m of piece.gemMeshes) m.material = this.gemMaterial;
-    piece.group.scale.setScalar(1.25);
+    piece.group.scale.setScalar(PIECE_SCALE);
     this.scene.add(piece.group);
     this.current = piece;
   }
 
   /**
    * Show a loaded custom model (real catalog .glb) instead of a procedural
-   * piece — keeps its own materials and is auto-fit to the viewer.
+   * piece. Imported (e.g. Meshy) meshes arrive with no real materials, so we
+   * re-dress them with OUR shared gold + diamond materials — the SAME instances
+   * the المعدن / الحجر selectors mutate, so switching metal/stone updates the
+   * loaded model live. The model is auto-centred and scaled to match the
+   * procedural ring's size/placement.
    */
-  setCustomModel(obj: THREE.Object3D): void {
+  setCustomModel(obj: THREE.Object3D, config?: ModelPartConfig | null): void {
     this.clearDisplayed();
-    this.customModel = obj;
-    this.scene.add(obj);
+    this.dressModel(obj, config ?? null);
+
+    // Measure the procedural ring (built + scaled exactly as setPiece would) so
+    // the loaded model lands at the same on-screen size and position.
+    const ref = buildPiece('ring');
+    ref.group.scale.setScalar(PIECE_SCALE);
+    ref.group.updateMatrixWorld(true);
+    const refBox = new THREE.Box3().setFromObject(ref.group);
+    const refSize = refBox.getSize(new THREE.Vector3());
+    const refMax = Math.max(refSize.x, refSize.y, refSize.z) || 1;
+    const refCenter = refBox.getCenter(new THREE.Vector3());
+    disposePiece(ref);
+
+    if (config?.rotation) obj.rotation.set(...config.rotation);
+    const wrap = fitToSize(obj, refMax); // centres obj + scales to the ring size
+    wrap.position.copy(refCenter); // place where the procedural ring sits
+    this.customModel = wrap;
+    this.scene.add(wrap);
+  }
+
+  /**
+   * Re-assign OUR shared materials onto an imported model: the band/largest
+   * mesh (and any tagged `metal`) → gold; the clustered small meshes (and any
+   * tagged `stone`) → diamond. Every mesh name is logged so the config in
+   * catalog/modelMap.ts can be authored when the size heuristic is off.
+   */
+  private dressModel(root: THREE.Object3D, config: ModelPartConfig | null): void {
+    const meshes: THREE.Mesh[] = [];
+    root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+    });
+    if (meshes.length === 0) return;
+
+    const sizes = meshes.map((m) => {
+      const s = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
+      return Math.max(s.x, s.y, s.z);
+    });
+    const maxSize = Math.max(...sizes, 1e-6);
+    const hit = (name: string, subs?: string[]): boolean =>
+      !!subs && subs.some((s) => name.toLowerCase().includes(s.toLowerCase()));
+
+    const stone = meshes.map((m, i) => {
+      const n = m.name || '';
+      if (hit(n, config?.stone)) return true;
+      if (hit(n, config?.metal)) return false;
+      return sizes[i] < maxSize * STONE_SIZE_RATIO; // heuristic: small part = stone
+    });
+
+    // eslint-disable-next-line no-console
+    console.info(
+      '[viewer] loaded model parts (tag these in MODEL_CONFIG_BY_HANDLE if wrong):',
+      meshes.map((m, i) => ({
+        name: m.name || '(unnamed)',
+        size: +sizes[i].toFixed(3),
+        as: stone[i] ? 'stone→diamond' : 'metal→gold',
+      })),
+    );
+
+    meshes.forEach((m, i) => {
+      m.material = stone[i] ? this.gemMaterial : this.metalMaterial;
+    });
   }
 
   private clearDisplayed(): void {
