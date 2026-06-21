@@ -102,55 +102,43 @@ export class FaceTryOn {
     this.flash = new THREE.PointLight(0xffffff, 1.2, 0, 0);
     this.scene.add(key, fill, this.flash);
 
-    // Real cut-diamond material for ALL AR stones (same brilliant-cut geometry
-    // as the orbit viewer). High transmission + ior 2.42 means you see THROUGH
-    // the table to the refracted pavilion facets — sparkle and facet contrast,
-    // not a flat white disc. Clearcoat adds crisp surface glints; the studio
-    // environment (bright panels over dark velvet) gives the facets light/dark
-    // contrast, and the travelling flash makes them twinkle as the head moves.
+    // Real brilliant-cut diamond material for ALL stones (pendant centre +
+    // earring drops/accents). The stones already use the engine's faceted hull
+    // geometry; this material makes them read as sparkling clear diamonds: high
+    // transmission lets you see THROUGH the table to the refracted pavilion
+    // facets, ior 2.42 + clearcoat give crisp facet glints, high envMapIntensity
+    // reflects the bright studio panels for facet light/dark CONTRAST (even on a
+    // plain wall), and a subtle iridescence fakes dispersion "fire" (true
+    // dispersion needs three r167+).
     const diamond = (): THREE.MeshPhysicalMaterial => {
-      const m = makeGemMaterial('diamond'); // transmission 0.85, ior 2.42, roughness 0
+      const m = makeGemMaterial('diamond'); // ior 2.42, roughness 0, white attenuation
+      m.transmission = 0.9;
+      m.roughness = 0.05;
+      m.thickness = 0.5;
       m.clearcoat = 1.0;
       m.clearcoatRoughness = 0.0;
-      m.thickness = 0.6; // small stones: keep them bright, not over-darkened
-      m.envMapIntensity = 1.5;
+      m.envMapIntensity = 2.4;
+      m.iridescence = 0.25; // subtle rainbow "fire" on the facet edges
+      m.iridescenceIOR = 1.3;
+      m.iridescenceThicknessRange = [120, 400];
       return m;
     };
-    const necklaceMetal = makeMetalMaterial('yellow');
-    const necklaceGem = diamond();
-    // Earrings get their OWN materials so changing them never touches the
-    // necklace. The stones are a FULLY OPAQUE glossy pearl-white cabochon (no
-    // transmission, no transparency) so they cover whatever is behind them and
-    // read solid against skin AND a plain white wall.
-    const earringMetal = makeMetalMaterial('yellow'); // opaque
-    const earringGem = new THREE.MeshPhysicalMaterial({
-      color: 0xf5f5f0, // bright pearl white
-      metalness: 0.0,
-      roughness: 0.18, // low roughness → crisp glossy highlight
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.12,
-      envMapIntensity: 1.0,
-      transmission: 0, // solid, not glass
-      transparent: false,
-      opacity: 1,
-    });
+    // One shared diamond + one shared gold for the necklace and both earrings.
+    const metalMat = makeMetalMaterial('yellow');
+    const gemMat = diamond();
 
-    const assign = (
-      piece: BuiltPiece,
-      metal: THREE.Material,
-      gem: THREE.Material,
-    ): BuiltPiece => {
-      for (const m of piece.metalMeshes) m.material = metal;
-      for (const m of piece.gemMeshes) m.material = gem;
+    const assign = (piece: BuiltPiece): BuiltPiece => {
+      for (const m of piece.metalMeshes) m.material = metalMat;
+      for (const m of piece.gemMeshes) m.material = gemMat;
       // Jewellery draws after the depth-only occluders.
       piece.group.renderOrder = 1;
       piece.group.traverse((o) => (o.renderOrder = 1));
       this.scene.add(piece.group);
       return piece;
     };
-    this.necklace = assign(buildNecklace(), necklaceMetal, necklaceGem);
-    this.earringR = assign(buildPiece('earring'), earringMetal, earringGem);
-    this.earringL = assign(buildPiece('earring'), earringMetal, earringGem);
+    this.necklace = assign(buildNecklace());
+    this.earringR = assign(buildPiece('earring'));
+    this.earringL = assign(buildPiece('earring'));
 
     this.occluders = createFaceOccluders();
     this.scene.add(this.occluders.group);
