@@ -78,6 +78,35 @@ body {
   background: rgba(203, 163, 80, 0.16);
 }
 
+/* Segmented mode toggle: 3D viewer ⇄ camera (AR). */
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(203, 163, 80, 0.06);
+  padding: 3px;
+  gap: 2px;
+}
+
+.mode-toggle .mode {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 7px 14px;
+  border-radius: 999px;
+  transition: 0.15s;
+}
+
+.mode-toggle .mode:hover {
+  color: var(--ivory);
+}
+
+.mode-toggle .mode.active {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color: var(--velvet);
+  font-weight: 600;
+}
+
 .stage {
   flex: 1 1 auto;
   display: flex;

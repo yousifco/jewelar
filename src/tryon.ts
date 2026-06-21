@@ -35,11 +35,15 @@ function showError(err: unknown): void {
     err instanceof TryOnError
       ? err.userMessage
       : 'حدث خطأ غير متوقع. أعد تحميل الصفحة وحاول مرة أخرى.';
-  // Offer a retry.
+  // Offer a retry. Call start() directly within the click so the camera request
+  // happens inside a user gesture (some browsers require this).
   const retry = document.createElement('button');
   retry.className = 'btn primary';
   retry.textContent = '↻ حاول مجدداً';
-  retry.onclick = () => location.reload();
+  retry.onclick = () => {
+    retry.remove();
+    void start();
+  };
   statusEl.appendChild(retry);
   // eslint-disable-next-line no-console
   console.error('[try-on]', err);
@@ -83,3 +87,16 @@ function toggle(btn: HTMLButtonElement, which: 'necklace' | 'earrings'): void {
 startBtn.addEventListener('click', start);
 itemNecklace.addEventListener('click', () => toggle(itemNecklace, 'necklace'));
 itemEarrings.addEventListener('click', () => toggle(itemEarrings, 'earrings'));
+
+// Shopify deep-link: ?piece=earring|necklace pre-selects that piece and opens
+// the camera directly. (?piece=ring|view is handled on the viewer page.)
+const piece = new URLSearchParams(location.search).get('piece');
+if (piece === 'earring' || piece === 'necklace') {
+  necklaceOn = piece === 'necklace';
+  earringsOn = piece === 'earring';
+  itemNecklace.classList.toggle('active', necklaceOn);
+  itemEarrings.classList.toggle('active', earringsOn);
+  // Open directly in AR. If the browser blocks the camera without a gesture,
+  // showError() falls back to a "tap to start" button.
+  void start();
+}

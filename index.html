@@ -10,6 +10,17 @@
       content="تجربة المجوهرات الواقعية على جهازك — ذهب ولمعان أحجار بدقة عالية، بدون خوادم."
     />
     <link rel="stylesheet" href="/src/style.css" />
+    <script>
+      // Shopify deep-link: ?piece=earring|necklace opens the camera (AR) page
+      // directly; ?piece=ring|view (or none) stays in the 3D viewer. Runs before
+      // the viewer module loads so we never init the viewer when redirecting.
+      (function () {
+        var p = new URLSearchParams(location.search).get('piece');
+        if (p === 'earring' || p === 'necklace') {
+          location.replace('tryon.html?piece=' + p);
+        }
+      })();
+    </script>
   </head>
   <body>
     <canvas id="scene"></canvas>
@@ -19,10 +30,10 @@
         <div class="brand-name">JewelAR</div>
         <div class="brand-sub">محرك العرض الواقعي — PBR · انعكاسات بيئية</div>
       </div>
-      <div class="header-actions">
-        <span class="badge">Phase 2 · المرحلة ٢</span>
-        <a class="badge badge-link" href="tryon.html">التجربة المباشرة (AR) ←</a>
-      </div>
+      <nav class="mode-toggle" aria-label="الوضع">
+        <a class="mode active" href="index.html" aria-current="page">عارض ٣D</a>
+        <a class="mode" href="tryon.html">المرآة</a>
+      </nav>
     </header>
 
     <p class="hint">اسحب لتدوير القطعة · لاحظ لمعان الذهب وتلألؤ الأحجار مع الحركة</p>
