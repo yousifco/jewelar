@@ -36,10 +36,17 @@ const BRACELET_W = 0.55; // bracelet band radius ÷ palm width
 const FINGER_OCC = 0.78; // finger occluder radius ÷ band radius
 const FOREARM_OCC = 0.9;
 const LOG_EVERY = 0.5; // seconds between ring-transform logs
-// Extra spin about the finger axis (degrees) to put the GLB's setting on top of
-// the finger if it lands on the palm side. Tweak if the stone faces the wrong
-// way; the live hand roll is applied regardless.
-const RING_SPIN_DEG = 0;
+// Extra spin about the finger axis (degrees) to put the GLB's setting on TOP of
+// the finger (back-of-hand side). 180° flips it from the palm side to the top;
+// if it lands sideways instead, try ±90 and keep whatever centres the setting
+// on top. The live hand roll is composed on top of this regardless.
+const RING_SPIN_DEG = 180;
+// MediaPipe reports handedness on the raw (un-mirrored) selfie frame, so the
+// dorsal (back-of-hand) normal from across×finger flips sign between hands. We
+// negate it for ONE label so the SAME RING_SPIN_DEG lands the setting on top for
+// both hands. If the setting is correct on one hand but on the palm for the
+// other, flip this label.
+const FLIP_DORSAL_FOR: 'Left' | 'Right' = 'Left';
 
 // DIAGNOSTIC: render the loaded GLB with its OWN materials (the Meshy gold +
 // baked white stones live in the model's baseColor texture) rather than
@@ -398,9 +405,15 @@ export class HandTryOn {
         this.dir3(lm[HAND.ringMCP], lm[HAND.ringPIP], dw, dh, this.fingerVec);
         this.dir3(lm[HAND.indexMCP], lm[HAND.pinkyMCP], dw, dh, this.acrossVec);
         this.dorsalVec.crossVectors(this.acrossVec, this.fingerVec).normalize();
+        // Make +Z point to the BACK of the hand for both hands (the cross-product
+        // sign flips with chirality), so RING_SPIN_DEG lands the setting on top
+        // regardless of which hand is shown.
+        if (frame.handedness === FLIP_DORSAL_FOR) this.dorsalVec.negate();
         this.axis.copy(this.fingerVec); // occluder cylinder follows the finger
         this.orientByBasis(this.ring.group, this.fingerVec, this.dorsalVec);
-        if (RING_SPIN_DEG) this.ring.group.rotateY(THREE.MathUtils.degToRad(RING_SPIN_DEG));
+        // Base offset (model setting → top) THEN the live hand roll is already in
+        // the basis above, so this spin rides along as the hand turns.
+        this.ring.group.rotateY(THREE.MathUtils.degToRad(RING_SPIN_DEG));
       } else {
         // Procedural fallback: 2D finger direction with a fixed out-of-screen
         // tilt, setting locked toward the camera (orientAlong).
@@ -423,6 +436,8 @@ export class HandTryOn {
           palmWpx: +palmW.toFixed(1),
           axis: { x: +this.axis.x.toFixed(2), y: +this.axis.y.toFixed(2), z: +this.axis.z.toFixed(2) },
           source: this.customRing ? 'glb' : 'procedural',
+          handedness: frame.handedness,
+          spinDeg: RING_SPIN_DEG,
         });
       }
     }

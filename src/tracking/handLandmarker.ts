@@ -16,8 +16,15 @@ const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSIO
 const HAND_MODEL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
+interface HandCategory {
+  categoryName: string;
+}
 interface HandResult {
   landmarks: Landmark[][];
+  /** Per-hand handedness categories (newer field name). */
+  handednesses?: HandCategory[][];
+  /** Per-hand handedness categories (older field name). */
+  handedness?: HandCategory[][];
 }
 interface HandLandmarkerInstance {
   detectForVideo(video: HTMLVideoElement, timestampMs: number): HandResult;
@@ -32,6 +39,8 @@ interface VisionModule {
 export interface HandFrame {
   /** Smoothed hand landmarks (21, normalised, y-down) or null when no hand. */
   landmarks: Landmark[] | null;
+  /** MediaPipe handedness of the detected hand (raw selfie frame), or null. */
+  handedness: 'Left' | 'Right' | null;
 }
 
 export type HandFrameHandler = (frame: HandFrame) => void;
@@ -97,17 +106,21 @@ export class HandLandmarkerController {
 
   private detect(): HandFrame {
     const v = this.video;
-    if (!this.hand || v.readyState < 2 || !v.videoWidth) return { landmarks: null };
+    if (!this.hand || v.readyState < 2 || !v.videoWidth)
+      return { landmarks: null, handedness: null };
     const ts = Math.max(performance.now(), this.lastTs + 1);
     this.lastTs = ts;
-    const raw = this.hand.detectForVideo(v, ts).landmarks?.[0] ?? null;
+    const result = this.hand.detectForVideo(v, ts);
+    const raw = result.landmarks?.[0] ?? null;
     if (!raw) {
       this.prev = null;
-      return { landmarks: null };
+      return { landmarks: null, handedness: null };
     }
+    const label = (result.handednesses ?? result.handedness)?.[0]?.[0]?.categoryName;
+    const handedness = label === 'Left' || label === 'Right' ? label : null;
     const smoothed = smoothLandmarks(raw, this.prev);
     this.prev = smoothed;
-    return { landmarks: smoothed };
+    return { landmarks: smoothed, handedness };
   }
 
   stop(): void {
