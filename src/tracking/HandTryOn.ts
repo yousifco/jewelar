@@ -12,7 +12,6 @@ import {
 import { createHandOccluders, type HandOccluders } from '../occlusion/handOccluders';
 import { dist, HAND, lerp, makeCoverMapper, normalize2, type Landmark } from './mapping';
 import { type HandFrame } from './handLandmarker';
-import type { ModelPartConfig } from '../catalog/modelMap';
 
 /**
  * The Phase 3 hand try-on scene — ring on the ring finger, bracelet on the
@@ -36,11 +35,10 @@ const BRACELET_W = 0.55; // bracelet band radius ÷ palm width
 const FINGER_OCC = 0.78; // finger occluder radius ÷ band radius
 const FOREARM_OCC = 0.9;
 const LOG_EVERY = 0.5; // seconds between ring-transform logs
-// Extra spin about the finger axis (degrees) to put the GLB's setting on TOP of
-// the finger (back-of-hand side). 180° flips it from the palm side to the top;
-// if it lands sideways instead, try ±90 and keep whatever centres the setting
-// on top. The live hand roll is composed on top of this regardless.
-const RING_SPIN_DEG = 180;
+// Default spin about the finger axis (deg) to seat the setting on TOP of the
+// finger (back-of-hand side); 180° flips it from the palm side. Overridden
+// per-model by the manifest's spinDeg. The live hand roll composes on top.
+const DEFAULT_SPIN_DEG = 180;
 // MediaPipe reports handedness on the raw (un-mirrored) selfie frame, so the
 // dorsal (back-of-hand) normal from across×finger flips sign between hands. We
 // negate it for ONE label so the SAME RING_SPIN_DEG lands the setting on top for
@@ -82,6 +80,10 @@ export class HandTryOn {
   private readonly metalMat: THREE.MeshStandardMaterial;
   private readonly gemMat: THREE.MeshPhysicalMaterial;
 
+  // Per-model placement from the manifest (applied to a loaded GLB ring).
+  private ringSpinDeg = DEFAULT_SPIN_DEG;
+  private ringScale = 1;
+
   private showRing = true;
   private showBracelet = false;
   private elapsed = 0;
@@ -107,8 +109,6 @@ export class HandTryOn {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly video: HTMLVideoElement,
-    /** When true, DON'T build the procedural ring — a GLB will be attached. */
-    expectCustomRing = false,
   ) {
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -151,18 +151,10 @@ export class HandTryOn {
       this.scene.add(piece.group);
       return piece;
     };
-    // When a per-handle GLB is expected, attach only an empty anchor group (no
-    // procedural ring) so the finger never shows the built-in ring — the GLB
-    // populates this group, or it stays empty if the GLB fails (debug overlay
-    // reports which). Otherwise build the procedural ring as before.
-    if (expectCustomRing) {
-      const group = new THREE.Group();
-      group.renderOrder = 1;
-      this.scene.add(group);
-      this.ring = { group, metalMeshes: [], gemMeshes: [] };
-    } else {
-      this.ring = assign(buildHandRing());
-    }
+    // Build the procedural ring up front — it's the 404 / load-error fallback.
+    // When the per-handle GLB loads, swapRingModel removes it and attaches the
+    // GLB instead (so only one ever shows).
+    this.ring = assign(buildHandRing());
     this.bracelet = assign(buildBracelet());
 
     this.occluders = createHandOccluders();
@@ -179,20 +171,26 @@ export class HandTryOn {
   /**
    * Real catalog model hook: load the per-handle .glb ring, attach it to the
    * anchored ring group, and re-orient so its hole axis runs along the band's
-   * local +Y (which the per-frame anchoring points across the finger). By
-   * default (USE_ORIGINAL_MATERIALS) it keeps the model's OWN Meshy materials so
-   * baked stones survive; flip the flag to re-dress with our gold/diamond.
+   * local +Y (which the per-frame anchoring points across the finger). Applies
+   * the manifest `scale` + `spinDeg`. By default (USE_ORIGINAL_MATERIALS) it
+   * keeps the model's OWN Meshy materials so baked stones survive; flip the flag
+   * to re-dress with our gold/diamond. On error the procedural ring stays.
    */
   async loadCustomRing(
     url: string,
-    config?: ModelPartConfig | null,
+    settings?: { scale?: number; spinDeg?: number },
   ): Promise<{ ok: boolean; error?: string; info?: RingFitInfo }> {
+    this.ringScale = settings?.scale ?? 1;
+    this.ringSpinDeg = settings?.spinDeg ?? DEFAULT_SPIN_DEG;
     // Log the FINAL absolute URL the loader will fetch (confirms /jewelar/… is
     // not doubled to /jewelar/jewelar/…). A leading-slash path resolves against
-    // the origin, so this should be https://<host>/jewelar/models/ring1.glb.
+    // the origin, so this should be https://<host>/jewelar/models/<handle>.glb.
     const absUrl = new URL(url, window.location.href).href;
     // eslint-disable-next-line no-console
-    console.info('[hand] GLTFLoader.load → input:', url, '| absolute:', absUrl);
+    console.info('[hand] GLTFLoader.load → input:', url, '| absolute:', absUrl, '| settings:', {
+      scale: this.ringScale,
+      spinDeg: this.ringSpinDeg,
+    });
 
     return new Promise((resolve) => {
       new GLTFLoader().load(
@@ -223,8 +221,6 @@ export class HandTryOn {
               dressImportedModel(gltf.scene, {
                 metal: this.metalMat,
                 gem: this.gemMat,
-                metalTags: config?.metal,
-                stoneTags: config?.stone,
                 label: 'hand',
               });
             }
@@ -238,7 +234,7 @@ export class HandTryOn {
             };
             this.customRing = true;
             // eslint-disable-next-line no-console
-            console.info('[hand] GLB attached to hand anchor (procedural ring not built)', info);
+            console.info('[hand] GLB attached to hand anchor (procedural ring removed)', info);
             resolve({ ok: true, info });
           } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
@@ -389,7 +385,7 @@ export class HandTryOn {
       // Scale the band diameter to the finger width. Proxy = ring-finger MCP to
       // pinky MCP (13↔17), which spans ≈ one finger; band radius ≈ half of that.
       const fingerW = dist(mcp, pinky);
-      const r = this.customRing ? fingerW * RING_FINGER_W : palmW * RING_W;
+      const r = this.customRing ? fingerW * RING_FINGER_W * this.ringScale : palmW * RING_W;
       this.ring.group.position.set(cx, cy, 0);
 
       if (this.customRing) {
@@ -411,9 +407,9 @@ export class HandTryOn {
         if (frame.handedness === FLIP_DORSAL_FOR) this.dorsalVec.negate();
         this.axis.copy(this.fingerVec); // occluder cylinder follows the finger
         this.orientByBasis(this.ring.group, this.fingerVec, this.dorsalVec);
-        // Base offset (model setting → top) THEN the live hand roll is already in
-        // the basis above, so this spin rides along as the hand turns.
-        this.ring.group.rotateY(THREE.MathUtils.degToRad(RING_SPIN_DEG));
+        // Per-model setting→top offset (manifest spinDeg); the live hand roll is
+        // already in the basis above, so this spin rides along as the hand turns.
+        this.ring.group.rotateY(THREE.MathUtils.degToRad(this.ringSpinDeg));
       } else {
         // Procedural fallback: 2D finger direction with a fixed out-of-screen
         // tilt, setting locked toward the camera (orientAlong).
@@ -437,7 +433,8 @@ export class HandTryOn {
           axis: { x: +this.axis.x.toFixed(2), y: +this.axis.y.toFixed(2), z: +this.axis.z.toFixed(2) },
           source: this.customRing ? 'glb' : 'procedural',
           handedness: frame.handedness,
-          spinDeg: RING_SPIN_DEG,
+          spinDeg: this.ringSpinDeg,
+          modelScale: this.ringScale,
         });
       }
     }

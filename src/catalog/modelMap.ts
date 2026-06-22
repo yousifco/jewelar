@@ -1,59 +1,84 @@
 /**
- * Per-SKU 3D models — maps a Shopify product `handle` to an optional 3D model
- * URL (.glb / .gltf). When a handle is listed here, the viewer / try-on loads
- * that model instead of the built-in procedural piece; otherwise it falls back
- * to the procedural piece for that type.
+ * Per-product 3D model resolution for the pilot — by Shopify product *handle*,
+ * no hardcoded handle→URL list.
  *
- * ── How to add a real model for a SKU ───────────────────────────────────────
- * 1) Put the .glb under /public/models/  (served at `${BASE}models/<file>.glb`,
- *    e.g. `/jewelar/models/ring1.glb` on GitHub Pages), or host it on a CDN.
- * 2) Add an entry: '<product-handle>': '<url>'. Authoring convention: model in
- *    millimetres, Y-up, facing +Z, origin at the natural anchor point (band
- *    centre for a ring, bail for a necklace, hook for an earring). The loader
- *    re-centres + scales to match the procedural piece, but matching this keeps
- *    placement accurate.
- * 3) Meshy / scan exports usually arrive with no real materials (plain grey).
- *    The viewer re-dresses them with OUR gold + diamond materials (respecting
- *    the المعدن / الحجر selectors). It auto-detects band-vs-stone by size, and
- *    logs every mesh name to the console — if the auto split is wrong, read the
- *    names from the console and tag them in MODEL_CONFIG_BY_HANDLE below.
+ * Convention: a product's model lives at `${BASE}models/<handle>.glb`
+ * (e.g. `/jewelar/models/<handle>.glb` on GitHub Pages). If that file loads it's
+ * used; if it 404s the caller falls back to the procedural piece for that type.
  *
- * NOTE: ring/bracelet handles listed here open in the 3D VIEWER (so the
- * metal/stone selectors apply). Keep the handle list in index.html's redirect
- * (`VIEWER_MODEL_HANDLES`) in sync so the deep-link stays in the viewer instead
- * of redirecting to the AR mirror.
+ * A single `${BASE}models/manifest.json` (fetched once, cached) supplies
+ * per-model placement — `{ piece, scale, spinDeg }` — with per-piece defaults
+ * for handles it doesn't list. `spinDeg` is the ring setting-orientation spin
+ * about the finger axis; `scale` multiplies the auto finger-fit.
  */
-export const MODEL_BY_HANDLE: Record<string, string> = {
-  'tryon-test-ring': `${import.meta.env.BASE_URL}models/ring1.glb`,
+
+// import.meta.env.BASE_URL is "/jewelar/" in prod, "/" in dev (trailing slash).
+const BASE = import.meta.env.BASE_URL;
+
+export type PieceType = 'ring' | 'bracelet' | 'necklace' | 'earrings';
+
+export interface ModelSettings {
+  piece: PieceType;
+  /** Multiplies the auto finger-fit radius (1 = current working size). */
+  scale: number;
+  /** Spin about the finger axis (deg) to seat the setting on top of the finger. */
+  spinDeg: number;
+}
+
+interface ManifestEntry {
+  piece?: PieceType;
+  scale?: number;
+  spinDeg?: number;
+}
+interface Manifest {
+  defaults?: Partial<Record<PieceType, { scale?: number; spinDeg?: number }>>;
+  handles?: Record<string, ManifestEntry>;
+}
+
+// Built-in fallbacks if the manifest is missing a piece/handle entirely.
+const PIECE_DEFAULTS: Record<PieceType, { scale: number; spinDeg: number }> = {
+  ring: { scale: 1, spinDeg: 180 },
+  bracelet: { scale: 1, spinDeg: 0 },
+  necklace: { scale: 1, spinDeg: 0 },
+  earrings: { scale: 1, spinDeg: 0 },
 };
 
-/** Resolve a product handle to a model URL, or null to use the procedural piece. */
+/** Convention URL for a handle's model, or null for an empty/unsafe handle. */
 export function modelUrlForHandle(handle: string | null | undefined): string | null {
   if (!handle) return null;
-  return MODEL_BY_HANDLE[handle] ?? null;
+  // Only plain product-handle characters (blocks path traversal / odd input).
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(handle)) return null;
+  return `${BASE}models/${handle}.glb`;
+}
+
+let manifestPromise: Promise<Manifest> | null = null;
+/** Fetch (once) and cache the model manifest; tolerant of a missing file. */
+function loadManifest(): Promise<Manifest> {
+  if (!manifestPromise) {
+    manifestPromise = fetch(`${BASE}models/manifest.json`)
+      .then((r) => (r.ok ? (r.json() as Promise<Manifest>) : {}))
+      .catch(() => ({}));
+  }
+  return manifestPromise;
 }
 
 /**
- * Optional per-model part tagging for re-materialising imported meshes. When a
- * model's parts don't split cleanly by size, list mesh-name substrings (matched
- * case-insensitively) to force a part to GOLD (`metal`) or DIAMOND (`stone`).
- * Anything not listed falls back to the size heuristic. `rotation` (radians,
- * XYZ) can upright a model that wasn't authored Y-up / facing +Z.
+ * Resolve placement settings for a handle: the manifest's per-handle entry if
+ * present, otherwise the per-piece defaults (using `pieceHint`, e.g. from the
+ * ?piece= deep-link, when the handle isn't listed).
  */
-export interface ModelPartConfig {
-  metal?: string[];
-  stone?: string[];
-  rotation?: [number, number, number];
-}
-
-export const MODEL_CONFIG_BY_HANDLE: Record<string, ModelPartConfig> = {
-  // After loading ring1.glb, read the mesh names logged to the console and fill
-  // this in if the auto band/stone split looks wrong, e.g.:
-  // 'tryon-test-ring': { metal: ['band', 'shank'], stone: ['diamond', 'gem', 'stone'] },
-};
-
-/** Resolve a product handle to its part config, or null when none is defined. */
-export function modelConfigForHandle(handle: string | null | undefined): ModelPartConfig | null {
-  if (!handle) return null;
-  return MODEL_CONFIG_BY_HANDLE[handle] ?? null;
+export async function modelSettingsForHandle(
+  handle: string | null | undefined,
+  pieceHint: PieceType,
+): Promise<ModelSettings> {
+  const manifest = await loadManifest();
+  const entry = (handle && manifest.handles?.[handle]) || null;
+  const piece = entry?.piece ?? pieceHint;
+  const fallback = PIECE_DEFAULTS[piece] ?? PIECE_DEFAULTS.ring;
+  const pieceDefault = manifest.defaults?.[piece] ?? {};
+  return {
+    piece,
+    scale: entry?.scale ?? pieceDefault.scale ?? fallback.scale,
+    spinDeg: entry?.spinDeg ?? pieceDefault.spinDeg ?? fallback.spinDeg,
+  };
 }

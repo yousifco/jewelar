@@ -1,0 +1,11 @@
+{
+  "defaults": {
+    "ring":     { "scale": 1.0, "spinDeg": 180 },
+    "bracelet": { "scale": 1.0, "spinDeg": 0 },
+    "necklace": { "scale": 1.0, "spinDeg": 0 },
+    "earrings": { "scale": 1.0, "spinDeg": 0 }
+  },
+  "handles": {
+    "tryon-test-ring": { "piece": "ring", "scale": 1.0, "spinDeg": 180 }
+  }
+}

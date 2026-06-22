@@ -3,7 +3,7 @@ import { FaceLandmarkerController, TryOnError } from './tracking/faceLandmarker'
 import { HandLandmarkerController } from './tracking/handLandmarker';
 import { FaceTryOn } from './tracking/FaceTryOn';
 import { HandTryOn } from './tracking/HandTryOn';
-import { modelConfigForHandle, modelUrlForHandle } from './catalog/modelMap';
+import { modelSettingsForHandle, modelUrlForHandle, type PieceType } from './catalog/modelMap';
 
 type Mode = 'face' | 'hand';
 type Piece = 'necklace' | 'earrings' | 'ring' | 'bracelet';
@@ -179,18 +179,23 @@ async function ensureMode(target: Mode): Promise<void> {
       const freshHand = !handScene;
       handCtl ??= new HandLandmarkerController(video);
       await handCtl.init();
-      // When a model URL resolved, build with NO procedural ring — only the GLB
-      // is shown (or nothing, if it fails). Same loader + dressing as the viewer.
-      handScene ??= new HandTryOn(camHand, video, !!modelUrl);
+      handScene ??= new HandTryOn(camHand, video);
       handScene.setActive(active.ring, active.bracelet);
-      if (freshHand) {
-        if (modelUrl) {
-          // eslint-disable-next-line no-console
-          console.info('[tryon] requesting custom ring model →', modelUrl);
-          setRingDebug('loading GLB…');
-          void handScene.loadCustomRing(modelUrl, modelConfigForHandle(handleParam)).then((res) => {
+      // Resolve the model by handle (convention URL). If it loads → swap it onto
+      // the ring anchor with the manifest scale/spinDeg; if it 404s/errors → the
+      // procedural ring stays.
+      if (freshHand && modelUrl) {
+        const pieceHint: PieceType = pieceParam === 'bracelet' ? 'bracelet' : 'ring';
+        // eslint-disable-next-line no-console
+        console.info('[tryon] resolving model by handle →', modelUrl);
+        setRingDebug('loading GLB…');
+        void modelSettingsForHandle(handleParam, pieceHint)
+          .then((settings) => handScene!.loadCustomRing(modelUrl, settings))
+          .then((res) => {
             if (res.ok && res.info) {
               const i = res.info;
+              // eslint-disable-next-line no-console
+              console.info('[tryon] source = loaded GLB', { url: modelUrl });
               setRingDebug(
                 `loaded GLB OK (${i.materialsMode} materials)\n` +
                   `meshes=${i.meshes} materials=${i.materials}\n` +
@@ -199,14 +204,15 @@ async function ensureMode(target: Mode): Promise<void> {
                   `normScale=${i.normalizeScale.toFixed(3)}`,
               );
             } else {
-              setRingDebug(`GLB FAILED -> ${res.error}`);
+              // eslint-disable-next-line no-console
+              console.warn('[tryon] source = procedural (model load failed):', modelUrl, res.error);
+              setRingDebug(`procedural fallback (model failed)\n${res.error}`);
             }
           });
-        } else {
-          // eslint-disable-next-line no-console
-          console.info('[tryon] no model for handle=%s → procedural ring', handleParam);
-          setRingDebug('using procedural (no model URL matched)');
-        }
+      } else if (freshHand) {
+        // eslint-disable-next-line no-console
+        console.info('[tryon] source = procedural (no handle/model). handle=%s', handleParam);
+        setRingDebug('using procedural (no handle / model URL)');
       }
       handCtl.start((frame) => {
         const tracked = handScene!.update(frame);

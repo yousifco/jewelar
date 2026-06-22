@@ -9,7 +9,7 @@ import {
   type MetalKey,
   type PieceKey,
 } from './engine';
-import { modelConfigForHandle, modelUrlForHandle } from './catalog/modelMap';
+import { modelSettingsForHandle, modelUrlForHandle } from './catalog/modelMap';
 import { renderChips } from './ui/chips';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -20,18 +20,23 @@ viewer.setPiece('ring');
 viewer.setMetal('yellow');
 viewer.setGem('diamond');
 
-// Real catalog model hook: if ?handle maps to a .glb, load it instead of the
-// procedural piece (falls back silently to procedural on miss or error). The
-// viewer re-dresses imported meshes with our gold/diamond materials and fits
-// them to the procedural ring's size/placement.
+// Real catalog model hook: resolve the model by product handle (convention
+// ${BASE}models/<handle>.glb). If it loads, show it (fit × manifest scale); if
+// it 404s / errors, keep the procedural piece.
 const handle = new URLSearchParams(location.search).get('handle');
 const modelUrl = modelUrlForHandle(handle);
 if (modelUrl) {
-  loadGltfScene(modelUrl)
-    .then((scene) => viewer.setCustomModel(scene, modelConfigForHandle(handle)))
+  // eslint-disable-next-line no-console
+  console.info('[viewer] resolving model by handle →', modelUrl);
+  Promise.all([loadGltfScene(modelUrl), modelSettingsForHandle(handle, 'ring')])
+    .then(([scene, settings]) => {
+      viewer.setCustomModel(scene, settings.scale);
+      // eslint-disable-next-line no-console
+      console.info('[viewer] source = loaded GLB', { url: modelUrl, scale: settings.scale });
+    })
     .catch((err) => {
       // eslint-disable-next-line no-console
-      console.error('[viewer] custom model failed, using procedural piece:', err);
+      console.warn('[viewer] source = procedural (model load failed):', modelUrl, err);
     });
 }
 

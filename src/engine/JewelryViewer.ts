@@ -16,7 +16,6 @@ import {
 import { buildPiece, type BuiltPiece, type PieceKey } from './models';
 import { fitToSize } from './gltf';
 import { dressImportedModel } from './dressModel';
-import type { ModelPartConfig } from '../catalog/modelMap';
 
 /**
  * The Phase 1 PBR rendering engine, realism pass.
@@ -133,11 +132,11 @@ export class JewelryViewer {
    * re-dress them with OUR shared gold + diamond materials — the SAME instances
    * the المعدن / الحجر selectors mutate, so switching metal/stone updates the
    * loaded model live. The model is auto-centred and scaled to match the
-   * procedural ring's size/placement.
+   * procedural ring's size/placement, times the per-model `scale`.
    */
-  setCustomModel(obj: THREE.Object3D, config?: ModelPartConfig | null): void {
+  setCustomModel(obj: THREE.Object3D, scale = 1): void {
     this.clearDisplayed();
-    this.dressModel(obj, config ?? null);
+    this.dressModel(obj);
 
     // Measure the procedural ring (built + scaled exactly as setPiece would) so
     // the loaded model lands at the same on-screen size and position.
@@ -150,8 +149,7 @@ export class JewelryViewer {
     const refCenter = refBox.getCenter(new THREE.Vector3());
     disposePiece(ref);
 
-    if (config?.rotation) obj.rotation.set(...config.rotation);
-    const wrap = fitToSize(obj, refMax); // centres obj + scales to the ring size
+    const wrap = fitToSize(obj, refMax * scale); // fit to the ring size × manifest scale
     wrap.position.copy(refCenter); // place where the procedural ring sits
     this.customModel = wrap;
     this.scene.add(wrap);
@@ -162,12 +160,10 @@ export class JewelryViewer {
    * clustered parts → diamond). Shared with the hand try-on via
    * dressImportedModel so the SAME .glb renders identically in both.
    */
-  private dressModel(root: THREE.Object3D, config: ModelPartConfig | null): void {
+  private dressModel(root: THREE.Object3D): void {
     dressImportedModel(root, {
       metal: this.metalMaterial,
       gem: this.gemMaterial,
-      metalTags: config?.metal,
-      stoneTags: config?.stone,
       stoneSizeRatio: STONE_SIZE_RATIO,
       label: 'viewer',
     });
