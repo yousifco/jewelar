@@ -51,6 +51,39 @@ export function modelUrlForHandle(handle: string | null | undefined): string | n
   return `${BASE}models/${handle}.glb`;
 }
 
+export type ModelSource = 'model-param' | 'handle-convention' | 'none';
+export interface ResolvedModel {
+  url: string | null;
+  source: ModelSource;
+}
+
+const FULL_URL_RE = /^https?:\/\//i;
+// A bare model filename under models/ (no slashes ⇒ no path traversal).
+const MODEL_FILE_RE = /^[a-z0-9][a-z0-9._-]*\.(glb|gltf)$/i;
+
+/**
+ * Resolve which .glb to load, by priority:
+ *   1) explicit `&model=` — a full http(s) URL (used as-is) or a bare filename
+ *      loaded from `${BASE}models/<model>`;
+ *   2) the handle convention `${BASE}models/<handle>.glb`;
+ *   3) none → caller uses the procedural fallback.
+ */
+export function resolveModelUrl(
+  modelParam: string | null | undefined,
+  handle: string | null | undefined,
+): ResolvedModel {
+  if (modelParam) {
+    if (FULL_URL_RE.test(modelParam)) return { url: modelParam, source: 'model-param' };
+    if (MODEL_FILE_RE.test(modelParam)) {
+      return { url: `${BASE}models/${modelParam}`, source: 'model-param' };
+    }
+    // Unsafe/invalid &model= value → ignore it and fall through to the handle.
+  }
+  const byHandle = modelUrlForHandle(handle);
+  if (byHandle) return { url: byHandle, source: 'handle-convention' };
+  return { url: null, source: 'none' };
+}
+
 let manifestPromise: Promise<Manifest> | null = null;
 /** Fetch (once) and cache the model manifest; tolerant of a missing file. */
 function loadManifest(): Promise<Manifest> {

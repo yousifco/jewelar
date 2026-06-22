@@ -9,7 +9,7 @@ import {
   type MetalKey,
   type PieceKey,
 } from './engine';
-import { modelSettingsForHandle, modelUrlForHandle } from './catalog/modelMap';
+import { modelSettingsForHandle, resolveModelUrl } from './catalog/modelMap';
 import { renderChips } from './ui/chips';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -20,19 +20,25 @@ viewer.setPiece('ring');
 viewer.setMetal('yellow');
 viewer.setGem('diamond');
 
-// Real catalog model hook: resolve the model by product handle (convention
-// ${BASE}models/<handle>.glb). If it loads, show it (fit × manifest scale); if
-// it 404s / errors, keep the procedural piece.
-const handle = new URLSearchParams(location.search).get('handle');
-const modelUrl = modelUrlForHandle(handle);
+// Real catalog model hook: resolve the model by &model= (filename or full URL),
+// else the handle convention ${BASE}models/<handle>.glb. If it loads, show it
+// (fit × manifest scale, keyed by handle); if it 404s/errors, keep the
+// procedural piece.
+const viewerParams = new URLSearchParams(location.search);
+const handle = viewerParams.get('handle');
+const { url: modelUrl, source: modelSource } = resolveModelUrl(viewerParams.get('model'), handle);
 if (modelUrl) {
   // eslint-disable-next-line no-console
-  console.info('[viewer] resolving model by handle →', modelUrl);
+  console.info(`[viewer] loading model (source=${modelSource}) →`, modelUrl);
   Promise.all([loadGltfScene(modelUrl), modelSettingsForHandle(handle, 'ring')])
     .then(([scene, settings]) => {
       viewer.setCustomModel(scene, settings.scale);
       // eslint-disable-next-line no-console
-      console.info('[viewer] source = loaded GLB', { url: modelUrl, scale: settings.scale });
+      console.info('[viewer] source = loaded GLB', {
+        url: modelUrl,
+        source: modelSource,
+        scale: settings.scale,
+      });
     })
     .catch((err) => {
       // eslint-disable-next-line no-console

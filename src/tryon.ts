@@ -3,7 +3,7 @@ import { FaceLandmarkerController, TryOnError } from './tracking/faceLandmarker'
 import { HandLandmarkerController } from './tracking/handLandmarker';
 import { FaceTryOn } from './tracking/FaceTryOn';
 import { HandTryOn } from './tracking/HandTryOn';
-import { modelSettingsForHandle, modelUrlForHandle, type PieceType } from './catalog/modelMap';
+import { modelSettingsForHandle, resolveModelUrl, type PieceType } from './catalog/modelMap';
 
 type Mode = 'face' | 'hand';
 type Piece = 'necklace' | 'earrings' | 'ring' | 'bracelet';
@@ -35,12 +35,19 @@ const PIECE_MODE: Record<Piece, Mode> = {
 const params = new URLSearchParams(location.search);
 const pieceParam = params.get('piece');
 const handleParam = params.get('handle');
-const modelUrl = modelUrlForHandle(handleParam);
+const modelParam = params.get('model');
+// Priority: &model= > handle convention > procedural. (Manifest settings are
+// still keyed by handle below.)
+const resolved = resolveModelUrl(modelParam, handleParam);
+const modelUrl = resolved.url;
+const modelSource = resolved.source;
 // eslint-disable-next-line no-console
 console.info('[tryon] deep-link resolution', {
   piece: pieceParam,
   handle: handleParam,
+  model: modelParam,
   modelUrl: modelUrl ?? '(none → procedural)',
+  source: modelSource,
 });
 
 /**
@@ -181,23 +188,23 @@ async function ensureMode(target: Mode): Promise<void> {
       await handCtl.init();
       handScene ??= new HandTryOn(camHand, video);
       handScene.setActive(active.ring, active.bracelet);
-      // Resolve the model by handle (convention URL). If it loads → swap it onto
-      // the ring anchor with the manifest scale/spinDeg; if it 404s/errors → the
-      // procedural ring stays.
+      // Resolve the model (&model= > handle convention). If it loads → swap it
+      // onto the ring anchor with the manifest scale/spinDeg (keyed by handle);
+      // if it 404s/errors → the procedural ring stays.
       if (freshHand && modelUrl) {
         const pieceHint: PieceType = pieceParam === 'bracelet' ? 'bracelet' : 'ring';
         // eslint-disable-next-line no-console
-        console.info('[tryon] resolving model by handle →', modelUrl);
-        setRingDebug('loading GLB…');
+        console.info(`[tryon] loading model (source=${modelSource}) →`, modelUrl);
+        setRingDebug(`loading GLB… (${modelSource})`);
         void modelSettingsForHandle(handleParam, pieceHint)
           .then((settings) => handScene!.loadCustomRing(modelUrl, settings))
           .then((res) => {
             if (res.ok && res.info) {
               const i = res.info;
               // eslint-disable-next-line no-console
-              console.info('[tryon] source = loaded GLB', { url: modelUrl });
+              console.info('[tryon] source = loaded GLB', { url: modelUrl, source: modelSource });
               setRingDebug(
-                `loaded GLB OK (${i.materialsMode} materials)\n` +
+                `loaded GLB OK (${modelSource}, ${i.materialsMode} materials)\n` +
                   `meshes=${i.meshes} materials=${i.materials}\n` +
                   `bbox=${i.bbox.x}×${i.bbox.y}×${i.bbox.z}  holeAxis=${i.holeAxis}\n` +
                   `rotation(deg)=${i.rotationDeg.x},${i.rotationDeg.y},${i.rotationDeg.z}  ` +
@@ -211,8 +218,8 @@ async function ensureMode(target: Mode): Promise<void> {
           });
       } else if (freshHand) {
         // eslint-disable-next-line no-console
-        console.info('[tryon] source = procedural (no handle/model). handle=%s', handleParam);
-        setRingDebug('using procedural (no handle / model URL)');
+        console.info('[tryon] source = procedural (no model/handle). handle=%s', handleParam);
+        setRingDebug('using procedural (no model / handle)');
       }
       handCtl.start((frame) => {
         const tracked = handScene!.update(frame);
