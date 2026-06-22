@@ -10,7 +10,7 @@ import {
   type BuiltPiece,
 } from '../engine';
 import { createHandOccluders, type HandOccluders } from '../occlusion/handOccluders';
-import { dist, HAND, lerp, makeCoverMapper, normalize2 } from './mapping';
+import { dist, HAND, lerp, makeCoverMapper, normalize2, type Landmark } from './mapping';
 import { type HandFrame } from './handLandmarker';
 import type { ModelPartConfig } from '../catalog/modelMap';
 
@@ -36,6 +36,10 @@ const BRACELET_W = 0.55; // bracelet band radius ÷ palm width
 const FINGER_OCC = 0.78; // finger occluder radius ÷ band radius
 const FOREARM_OCC = 0.9;
 const LOG_EVERY = 0.5; // seconds between ring-transform logs
+// Extra spin about the finger axis (degrees) to put the GLB's setting on top of
+// the finger if it lands on the palm side. Tweak if the stone faces the wrong
+// way; the live hand roll is applied regardless.
+const RING_SPIN_DEG = 0;
 
 // DIAGNOSTIC: render the loaded GLB with its OWN materials (the Meshy gold +
 // baked white stones live in the model's baseColor texture) rather than
@@ -89,6 +93,9 @@ export class HandTryOn {
   private readonly zAxis = new THREE.Vector3();
   private readonly xAxis = new THREE.Vector3();
   private readonly basis = new THREE.Matrix4();
+  private readonly fingerVec = new THREE.Vector3();
+  private readonly acrossVec = new THREE.Vector3();
+  private readonly dorsalVec = new THREE.Vector3();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -372,16 +379,36 @@ export class HandTryOn {
       // Seat the band at the finger BASE (closer to the MCP knuckle).
       const cx = lerp(mcp.x, pip.x, 0.42);
       const cy = lerp(mcp.y, pip.y, 0.42);
-      // Hole axis runs ALONG the finger (13→14), tilted out of screen so the
-      // band reads as an ellipse; orientAlong maps the band's local +Y to it.
-      const fdir = normalize2(pip.x - mcp.x, pip.y - mcp.y);
-      this.axis.set(fdir.x, fdir.y, RING_TILT).normalize();
       // Scale the band diameter to the finger width. Proxy = ring-finger MCP to
       // pinky MCP (13↔17), which spans ≈ one finger; band radius ≈ half of that.
       const fingerW = dist(mcp, pinky);
       const r = this.customRing ? fingerW * RING_FINGER_W : palmW * RING_W;
       this.ring.group.position.set(cx, cy, 0);
-      this.orientAlong(this.ring.group);
+
+      if (this.customRing) {
+        // FULL 3D hand orientation so the ring rolls/pitches/yaws with the hand.
+        // Build a basis from the landmark depths: local +Y = finger axis (13→14,
+        // the band's hole), local +Z = the hand's DORSAL normal (across-knuckles
+        // 5→17 ✕ finger) so the setting tracks the back of the hand as it rolls.
+        const vw = this.video.videoWidth || 1;
+        const vh = this.video.videoHeight || 1;
+        const scale = Math.max(this.viewW / vw, this.viewH / vh);
+        const dw = vw * scale;
+        const dh = vh * scale;
+        this.dir3(lm[HAND.ringMCP], lm[HAND.ringPIP], dw, dh, this.fingerVec);
+        this.dir3(lm[HAND.indexMCP], lm[HAND.pinkyMCP], dw, dh, this.acrossVec);
+        this.dorsalVec.crossVectors(this.acrossVec, this.fingerVec).normalize();
+        this.axis.copy(this.fingerVec); // occluder cylinder follows the finger
+        this.orientByBasis(this.ring.group, this.fingerVec, this.dorsalVec);
+        if (RING_SPIN_DEG) this.ring.group.rotateY(THREE.MathUtils.degToRad(RING_SPIN_DEG));
+      } else {
+        // Procedural fallback: 2D finger direction with a fixed out-of-screen
+        // tilt, setting locked toward the camera (orientAlong).
+        const fdir = normalize2(pip.x - mcp.x, pip.y - mcp.y);
+        this.axis.set(fdir.x, fdir.y, RING_TILT).normalize();
+        this.orientAlong(this.ring.group);
+      }
+
       this.ring.group.scale.setScalar(r);
       this.placeOccluder(this.occluders.finger, cx, cy, r * FINGER_OCC, palmW * 1.5);
 
@@ -430,6 +457,30 @@ export class HandTryOn {
     this.zAxis.normalize();
     this.xAxis.crossVectors(y, this.zAxis).normalize();
     this.basis.makeBasis(this.xAxis, y, this.zAxis);
+    obj.quaternion.setFromRotationMatrix(this.basis);
+  }
+
+  /**
+   * Direction (scene space) between two landmarks, into `out`. Image space is
+   * x-right / y-DOWN / z-toward-camera-negative; the scene is x-right / y-UP /
+   * z-toward-camera-positive, and z uses ~the same scale as x. So flip y and z.
+   */
+  private dir3(a: Landmark, b: Landmark, dw: number, dh: number, out: THREE.Vector3): THREE.Vector3 {
+    return out.set((b.x - a.x) * dw, -(b.y - a.y) * dh, -(b.z - a.z) * dw).normalize();
+  }
+
+  /**
+   * Orient `obj` with a full 3D basis: local +Y → `yAxis` (finger/hole), local
+   * +Z → `zHint` made perpendicular to Y (hand dorsal normal → setting on top),
+   * local +X = Y✕Z. This rolls the ring with the hand instead of locking the
+   * setting toward the camera.
+   */
+  private orientByBasis(obj: THREE.Object3D, yAxis: THREE.Vector3, zHint: THREE.Vector3): void {
+    this.zAxis.copy(zHint).addScaledVector(yAxis, -zHint.dot(yAxis));
+    if (this.zAxis.lengthSq() < 1e-6) this.zAxis.copy(FORWARD_Z);
+    this.zAxis.normalize();
+    this.xAxis.crossVectors(yAxis, this.zAxis).normalize();
+    this.basis.makeBasis(this.xAxis, yAxis, this.zAxis);
     obj.quaternion.setFromRotationMatrix(this.basis);
   }
 
